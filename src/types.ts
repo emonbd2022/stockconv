@@ -3,7 +3,8 @@ export interface ConvertedImage {
   originalName: string;
   originalSize: number;
   previewUrl: string;
-  blob: Blob;
+  file: File;
+  blob?: Blob;
   status: 'pending' | 'converting' | 'done' | 'error';
   jpegSize?: number;
 }

@@ -1,12 +1,14 @@
 import React, { useCallback, useState, useEffect } from 'react';
 import JSZip from 'jszip';
-import { Upload, Download, Trash2, Settings, DownloadCloud, CheckCircle, FileImage, XCircle, Info } from 'lucide-react';
+import { Upload, Download, Trash2, DownloadCloud, CheckCircle, FileImage, XCircle, Info, PlayCircle, Hourglass } from 'lucide-react';
 import { ConvertedImage, Toast } from './types';
 import { convertPngToJpeg, downloadBlob, formatBytes, playSuccessSound, showOSNotification } from './utils';
 
 export default function App() {
   const [images, setImages] = useState<ConvertedImage[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [avgTimePerImage, setAvgTimePerImage] = useState<number>(500);
+  const [isConverting, setIsConverting] = useState(false);
   const [autoExport, setAutoExport] = useState<boolean>(() => {
     const saved = localStorage.getItem('autoExport');
     return saved === 'true';
@@ -32,7 +34,7 @@ export default function App() {
     }
   };
 
-  const handleFiles = useCallback(async (files: FileList | null) => {
+  const handleFiles = useCallback((files: FileList | null) => {
     if (!files) return;
 
     const fileArray = Array.from(files).filter(file => file.type === 'image/png');
@@ -43,40 +45,81 @@ export default function App() {
       originalName: file.name,
       originalSize: file.size,
       previewUrl: URL.createObjectURL(file),
-      blob: new Blob(),
+      file: file,
       status: 'pending'
     }));
 
     setImages(prev => [...prev, ...newImages]);
+  }, []);
 
-    for (let i = 0; i < fileArray.length; i++) {
-      const file = fileArray[i];
-      const imgObj = newImages[i];
-      
-      try {
-        setImages(prev => prev.map(img => 
-          img.id === imgObj.id ? { ...img, status: 'converting' } : img
-        ));
-        
-        const jpegBlob = await convertPngToJpeg(file);
-        
-        setImages(prev => prev.map(img => 
-          img.id === imgObj.id ? { 
-            ...img, 
-            status: 'done', 
-            blob: jpegBlob, 
-            jpegSize: jpegBlob.size 
-          } : img
-        ));
+  const handleExportBatch = async (overrideImages?: ConvertedImage[]) => {
+    const doneImages = overrideImages || images.filter(img => img.status === 'done');
+    if (doneImages.length === 0) return;
 
-        if (autoExport) {
-          const newName = file.name.replace(/\.[^/.]+$/, "") + ".jpg";
-          downloadBlob(jpegBlob, newName);
-          playSuccessSound();
-          showOSNotification('Export Complete', {
-            body: `Successfully exported ${newName}`,
-          });
+    setIsExportingBatch(true);
+    addToast('Starting batch export...', 'info');
+    try {
+      const JSZip = (await import('jszip')).default;
+      const zip = new JSZip();
+
+      doneImages.forEach(img => {
+        if (img.blob) {
+          const newName = img.originalName.replace(/\.[^/.]+$/, "") + ".jpg";
+          zip.file(newName, img.blob);
         }
+      });
+
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      downloadBlob(zipBlob, 'converted_images.zip');
+      
+      addToast(`Successfully exported ${doneImages.length} images!`, 'success');
+      playSuccessSound();
+      showOSNotification('Batch Export Complete', {
+        body: `Successfully exported ${doneImages.length} images.`,
+      });
+    } catch (error) {
+      console.error("Batch export failed:", error);
+      addToast('Failed to create batch export zip.', 'error');
+    } finally {
+      setIsExportingBatch(false);
+    }
+  };
+
+  const startConversion = async () => {
+    const pendingImages = images.filter(img => img.status === 'pending');
+    if (pendingImages.length === 0) return;
+    
+    let allDone: ConvertedImage[] = [];
+    setIsConverting(true);
+    
+    for (const imgObj of pendingImages) {
+      setImages(prev => prev.map(img => 
+        img.id === imgObj.id ? { ...img, status: 'converting' } : img
+      ));
+      
+      const startTime = performance.now();
+      try {
+        const jpegBlob = await convertPngToJpeg(imgObj.file);
+        const endTime = performance.now();
+        const timeTaken = Math.max(10, endTime - startTime);
+        setAvgTimePerImage(prev => (prev + timeTaken) / 2);
+        
+        setImages(prev => prev.map(img => {
+          if (img.id === imgObj.id) {
+            const updated = { 
+              ...img, 
+              status: 'done' as const, 
+              blob: jpegBlob, 
+              jpegSize: jpegBlob.size 
+            };
+            allDone.push(updated);
+            return updated;
+          }
+          if (img.status === 'done') {
+            allDone.push(img);
+          }
+          return img;
+        }));
       } catch (error) {
         console.error("Failed to convert image:", error);
         setImages(prev => prev.map(img => 
@@ -84,7 +127,20 @@ export default function App() {
         ));
       }
     }
-  }, [autoExport]);
+    
+    setIsConverting(false);
+    
+    // We wait slightly to make sure the state is updated
+    setTimeout(() => {
+      setImages(prev => {
+        const currentDone = prev.filter(img => img.status === 'done');
+        if (autoExport && currentDone.length > 0) {
+          handleExportBatch(currentDone);
+        }
+        return prev;
+      });
+    }, 100);
+  };
 
   const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -106,43 +162,20 @@ export default function App() {
     });
   };
 
-  const handleExportBatch = async () => {
-    const doneImages = images.filter(img => img.status === 'done');
-    if (doneImages.length === 0) return;
-
-    setIsExportingBatch(true);
-    addToast('Starting batch export...', 'info');
-    try {
-      const JSZip = (await import('jszip')).default;
-      const zip = new JSZip();
-
-      doneImages.forEach(img => {
-        const newName = img.originalName.replace(/\.[^/.]+$/, "") + ".jpg";
-        zip.file(newName, img.blob);
-      });
-
-      const zipBlob = await zip.generateAsync({ type: 'blob' });
-      downloadBlob(zipBlob, 'converted_images.zip');
-      
-      addToast(`Successfully exported ${doneImages.length} images!`, 'success');
-      playSuccessSound();
-      showOSNotification('Batch Export Complete', {
-        body: `Successfully exported ${doneImages.length} images.`,
-      });
-    } catch (error) {
-      console.error("Batch export failed:", error);
-      addToast('Failed to create batch export zip.', 'error');
-    } finally {
-      setIsExportingBatch(false);
-    }
-  };
-
   const clearAll = () => {
     images.forEach(img => {
       if (img.previewUrl) URL.revokeObjectURL(img.previewUrl);
     });
     setImages([]);
   };
+
+  const totalCount = images.length;
+  const pendingCount = images.filter(img => img.status === 'pending').length;
+  const doneCount = images.filter(img => img.status === 'done').length;
+  const progressPercent = totalCount === 0 ? 0 : Math.round((doneCount / totalCount) * 100);
+
+  const estimatedMs = pendingCount * avgTimePerImage;
+  const estimatedSeconds = Math.ceil(estimatedMs / 1000);
 
   return (
     <div className="h-full w-full bg-[#0A0518] text-[#E0D7FF] font-sans flex flex-col">
@@ -173,7 +206,7 @@ export default function App() {
             
             <div className="space-y-4">
               <label className="flex items-center justify-between p-3 rounded-xl bg-purple-900/20 border border-purple-500/10 cursor-pointer hover:border-purple-500/30 transition-colors">
-                <span className="text-sm font-medium">Auto-Export</span>
+                <span className="text-sm font-medium">Auto-Export (Batch Only)</span>
                 <div className="relative">
                   <input 
                     type="checkbox" 
@@ -187,8 +220,22 @@ export default function App() {
               </label>
 
               <div className="p-4 rounded-xl bg-purple-500/5 border border-purple-500/20">
-                <h3 className="text-xs font-semibold text-purple-200 mb-2">Metadata Retention</h3>
-                <p className="text-[11px] leading-relaxed text-purple-300/60">No additional compression applied. Highest quality JPEG format conversion.</p>
+                <h3 className="text-xs font-semibold text-purple-200 mb-2">Quality & Compression</h3>
+                <p className="text-[11px] leading-relaxed text-purple-300/60">No additional compression applied. Images converted at 100% highest quality natively.</p>
+              </div>
+            </div>
+
+            <div className="mt-6 p-6 rounded-2xl bg-[#140D2B] border border-purple-500/20 shadow-lg shadow-purple-900/20 flex flex-col items-center">
+              <h3 className="text-xs font-bold text-purple-400 uppercase tracking-widest mb-4">Estimated Time</h3>
+              <div className="relative w-24 h-24 flex items-center justify-center mb-2">
+                <div className={`absolute inset-0 bg-purple-500/10 rounded-full blur-xl ${isConverting ? 'animate-pulse' : ''}`}></div>
+                <Hourglass className={`w-12 h-12 text-purple-400 ${isConverting ? 'animate-spin' : ''}`} style={{ animationDuration: '3s' }} />
+              </div>
+              <div className="text-2xl font-mono font-bold text-white tracking-wider">
+                {pendingCount === 0 ? '00:00' : `${Math.floor(estimatedSeconds / 60).toString().padStart(2, '0')}:${(estimatedSeconds % 60).toString().padStart(2, '0')}`}
+              </div>
+              <div className="text-xs text-purple-300/50 mt-2">
+                 {isConverting ? 'Processing...' : (pendingCount > 0 ? 'Ready to process' : 'All done')}
               </div>
             </div>
           </div>
@@ -197,8 +244,17 @@ export default function App() {
             <h2 className="text-xs font-bold text-purple-400 uppercase tracking-widest mb-4">Export Mode</h2>
             <div className="grid gap-2">
               <button 
+                onClick={startConversion}
+                disabled={pendingCount === 0}
+                className="w-full flex items-center justify-center space-x-2 py-3 rounded-lg bg-green-600 text-white font-bold text-sm shadow-lg shadow-green-900/50 hover:bg-green-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <PlayCircle className="w-4 h-4" />
+                <span>START CONVERSION</span>
+              </button>
+
+              <button 
                 onClick={handleExportBatch}
-                disabled={isExportingBatch || !images.some(img => img.status === 'done')}
+                disabled={isExportingBatch || doneCount === 0}
                 className="w-full flex items-center justify-center space-x-2 py-3 rounded-lg bg-purple-600 text-white font-bold text-sm shadow-lg shadow-purple-900/50 hover:bg-purple-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <DownloadCloud className="w-4 h-4" />
@@ -246,8 +302,21 @@ export default function App() {
 
           {/* Processing Queue */}
           <div className="flex-1 flex flex-col overflow-hidden min-h-0">
-            <div className="flex items-center justify-between mb-4 shrink-0">
-              <h2 className="text-sm font-bold text-white uppercase tracking-widest">File Queue <span className="text-purple-500 font-mono text-xs ml-2">({images.length})</span></h2>
+            <div className="flex flex-col mb-4 shrink-0 gap-3">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-bold text-white uppercase tracking-widest">File Queue <span className="text-purple-500 font-mono text-xs ml-2">({totalCount})</span></h2>
+                {totalCount > 0 && (
+                   <span className="text-xs font-mono text-purple-400">{progressPercent}% Completed</span>
+                )}
+              </div>
+              {totalCount > 0 && (
+                <div className="w-full h-1.5 bg-purple-900/50 rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-gradient-to-r from-purple-600 to-indigo-500 transition-all duration-500"
+                    style={{ width: `${progressPercent}%` }}
+                  ></div>
+                </div>
+              )}
             </div>
             
             <div className="flex-1 space-y-2 overflow-y-auto pr-2 custom-scrollbar">
