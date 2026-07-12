@@ -1,13 +1,36 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import JSZip from 'jszip';
-import { Upload, Download, Trash2, Settings, DownloadCloud, CheckCircle, FileImage } from 'lucide-react';
-import { ConvertedImage } from './types';
-import { convertPngToJpeg, downloadBlob, formatBytes } from './utils';
+import { Upload, Download, Trash2, Settings, DownloadCloud, CheckCircle, FileImage, XCircle, Info } from 'lucide-react';
+import { ConvertedImage, Toast } from './types';
+import { convertPngToJpeg, downloadBlob, formatBytes, playSuccessSound, showOSNotification } from './utils';
 
 export default function App() {
   const [images, setImages] = useState<ConvertedImage[]>([]);
-  const [autoExport, setAutoExport] = useState(false);
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const [autoExport, setAutoExport] = useState<boolean>(() => {
+    const saved = localStorage.getItem('autoExport');
+    return saved === 'true';
+  });
   const [isExportingBatch, setIsExportingBatch] = useState(false);
+
+  useEffect(() => {
+    localStorage.setItem('autoExport', autoExport.toString());
+  }, [autoExport]);
+
+  const addToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    const id = crypto.randomUUID();
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 4000);
+  }, []);
+
+  const handleAutoExportToggle = (checked: boolean) => {
+    setAutoExport(checked);
+    if (checked && 'Notification' in window && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
+      Notification.requestPermission();
+    }
+  };
 
   const handleFiles = useCallback(async (files: FileList | null) => {
     if (!files) return;
@@ -49,6 +72,10 @@ export default function App() {
         if (autoExport) {
           const newName = file.name.replace(/\.[^/.]+$/, "") + ".jpg";
           downloadBlob(jpegBlob, newName);
+          playSuccessSound();
+          showOSNotification('Export Complete', {
+            body: `Successfully exported ${newName}`,
+          });
         }
       } catch (error) {
         console.error("Failed to convert image:", error);
@@ -84,6 +111,7 @@ export default function App() {
     if (doneImages.length === 0) return;
 
     setIsExportingBatch(true);
+    addToast('Starting batch export...', 'info');
     try {
       const JSZip = (await import('jszip')).default;
       const zip = new JSZip();
@@ -95,8 +123,15 @@ export default function App() {
 
       const zipBlob = await zip.generateAsync({ type: 'blob' });
       downloadBlob(zipBlob, 'converted_images.zip');
+      
+      addToast(`Successfully exported ${doneImages.length} images!`, 'success');
+      playSuccessSound();
+      showOSNotification('Batch Export Complete', {
+        body: `Successfully exported ${doneImages.length} images.`,
+      });
     } catch (error) {
       console.error("Batch export failed:", error);
+      addToast('Failed to create batch export zip.', 'error');
     } finally {
       setIsExportingBatch(false);
     }
@@ -144,7 +179,7 @@ export default function App() {
                     type="checkbox" 
                     className="sr-only" 
                     checked={autoExport}
-                    onChange={(e) => setAutoExport(e.target.checked)}
+                    onChange={(e) => handleAutoExportToggle(e.target.checked)}
                   />
                   <div className={`w-10 h-5 rounded-full transition-colors ${autoExport ? 'bg-purple-600' : 'bg-purple-900/50'}`}></div>
                   <div className={`absolute left-1 top-1 w-3 h-3 bg-white rounded-full transition-transform ${autoExport ? 'translate-x-5' : ''}`}></div>
@@ -274,6 +309,25 @@ export default function App() {
           <p className="text-[11px] text-purple-300/50 font-medium">© {new Date().getFullYear()} StockConv — Developed by <span className="text-purple-400 font-semibold">Shahin Alam Emon</span></p>
         </div>
       </footer>
+
+      {/* Toasts */}
+      <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
+        {toasts.map(toast => (
+          <div 
+            key={toast.id}
+            className={`flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg border ${
+              toast.type === 'success' ? 'bg-green-900/90 border-green-500/50 text-green-100' :
+              toast.type === 'error' ? 'bg-red-900/90 border-red-500/50 text-red-100' :
+              'bg-[#140D2B]/90 border-purple-500/50 text-purple-100'
+            } backdrop-blur-sm animate-in slide-in-from-right-8 fade-in duration-300`}
+          >
+            {toast.type === 'success' && <CheckCircle className="w-5 h-5 text-green-400" />}
+            {toast.type === 'error' && <XCircle className="w-5 h-5 text-red-400" />}
+            {toast.type === 'info' && <Info className="w-5 h-5 text-purple-400" />}
+            <span className="text-sm font-medium">{toast.message}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
