@@ -1,0 +1,6 @@
+{
+  "name": "PNG to JPEG Converter",
+  "description": "Client-side PNG to JPEG converter with zero quality loss and batch export support.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
