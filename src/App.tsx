@@ -1,6 +1,6 @@
-import React, { useCallback, useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect, useRef } from 'react';
 import JSZip from 'jszip';
-import { Upload, Download, Trash2, DownloadCloud, CheckCircle, FileImage, XCircle, Info, PlayCircle, Hourglass } from 'lucide-react';
+import { Upload, Download, Trash2, DownloadCloud, CheckCircle, FileImage, XCircle, Info, PlayCircle, StopCircle, Hourglass } from 'lucide-react';
 import { ConvertedImage, Toast } from './types';
 import { convertPngToJpeg, downloadBlob, formatBytes, playSuccessSound, showOSNotification } from './utils';
 
@@ -9,6 +9,8 @@ export default function App() {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [avgTimePerImage, setAvgTimePerImage] = useState<number>(500);
   const [isConverting, setIsConverting] = useState(false);
+  const stopConversionRef = useRef(false);
+  const recentTimesRef = useRef<number[]>([]);
   const [autoExport, setAutoExport] = useState<boolean>(() => {
     const saved = localStorage.getItem('autoExport');
     return saved === 'true';
@@ -85,14 +87,28 @@ export default function App() {
     }
   };
 
+  const toggleConversion = () => {
+    if (isConverting) {
+      stopConversionRef.current = true;
+    } else {
+      stopConversionRef.current = false;
+      startConversion();
+    }
+  };
+
   const startConversion = async () => {
     const pendingImages = images.filter(img => img.status === 'pending');
     if (pendingImages.length === 0) return;
     
     let allDone: ConvertedImage[] = [];
     setIsConverting(true);
+    stopConversionRef.current = false;
     
     for (const imgObj of pendingImages) {
+      if (stopConversionRef.current) {
+        break;
+      }
+      
       setImages(prev => prev.map(img => 
         img.id === imgObj.id ? { ...img, status: 'converting' } : img
       ));
@@ -102,7 +118,13 @@ export default function App() {
         const jpegBlob = await convertPngToJpeg(imgObj.file);
         const endTime = performance.now();
         const timeTaken = Math.max(10, endTime - startTime);
-        setAvgTimePerImage(prev => (prev + timeTaken) / 2);
+        
+        recentTimesRef.current.push(timeTaken);
+        if (recentTimesRef.current.length > 10) {
+          recentTimesRef.current.shift();
+        }
+        const avg = recentTimesRef.current.reduce((a, b) => a + b, 0) / recentTimesRef.current.length;
+        setAvgTimePerImage(avg);
         
         setImages(prev => prev.map(img => {
           if (img.id === imgObj.id) {
@@ -129,6 +151,7 @@ export default function App() {
     }
     
     setIsConverting(false);
+    stopConversionRef.current = false;
     
     // We wait slightly to make sure the state is updated
     setTimeout(() => {
@@ -244,16 +267,20 @@ export default function App() {
             <h2 className="text-xs font-bold text-purple-400 uppercase tracking-widest mb-4">Export Mode</h2>
             <div className="grid gap-2">
               <button 
-                onClick={startConversion}
-                disabled={pendingCount === 0}
-                className="w-full flex items-center justify-center space-x-2 py-3 rounded-lg bg-green-600 text-white font-bold text-sm shadow-lg shadow-green-900/50 hover:bg-green-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={toggleConversion}
+                disabled={pendingCount === 0 && !isConverting}
+                className={`w-full flex items-center justify-center space-x-2 py-3 rounded-lg text-white font-bold text-sm shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
+                  isConverting 
+                    ? 'bg-red-600 shadow-red-900/50 hover:bg-red-500' 
+                    : 'bg-green-600 shadow-green-900/50 hover:bg-green-500'
+                }`}
               >
-                <PlayCircle className="w-4 h-4" />
-                <span>START CONVERSION</span>
+                {isConverting ? <StopCircle className="w-4 h-4" /> : <PlayCircle className="w-4 h-4" />}
+                <span>{isConverting ? 'STOP CONVERSION' : 'START CONVERSION'}</span>
               </button>
 
               <button 
-                onClick={handleExportBatch}
+                onClick={() => handleExportBatch()}
                 disabled={isExportingBatch || doneCount === 0}
                 className="w-full flex items-center justify-center space-x-2 py-3 rounded-lg bg-purple-600 text-white font-bold text-sm shadow-lg shadow-purple-900/50 hover:bg-purple-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
