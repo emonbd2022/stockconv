@@ -1,16 +1,21 @@
 import React, { useCallback, useState, useEffect, useRef } from 'react';
 import JSZip from 'jszip';
-import { Upload, Download, Trash2, DownloadCloud, CheckCircle, FileImage, XCircle, Info, PlayCircle, StopCircle, Hourglass } from 'lucide-react';
+import { Upload, Download, Trash2, DownloadCloud, CheckCircle, FileImage, XCircle, Info, PlayCircle, StopCircle, Hourglass, Activity } from 'lucide-react';
 import { ConvertedImage, Toast } from './types';
 import { convertPngToJpeg, downloadBlob, formatBytes, playSuccessSound, showOSNotification } from './utils';
 
 export default function App() {
   const [images, setImages] = useState<ConvertedImage[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [sessionStats, setSessionStats] = useState({
+    fastestTime: Infinity,
+    slowestTime: 0,
+    totalProcessed: 0,
+  });
   const [avgTimePerImage, setAvgTimePerImage] = useState<number>(500);
   const [isConverting, setIsConverting] = useState(false);
   const stopConversionRef = useRef(false);
-  const recentTimesRef = useRef<number[]>([]);
+  const recentTimesRef = useRef<{ timestamp: number, duration: number }[]>([]);
   const [autoExport, setAutoExport] = useState<boolean>(() => {
     const saved = localStorage.getItem('autoExport');
     return saved === 'true';
@@ -119,12 +124,21 @@ export default function App() {
         const endTime = performance.now();
         const timeTaken = Math.max(10, endTime - startTime);
         
-        recentTimesRef.current.push(timeTaken);
-        if (recentTimesRef.current.length > 10) {
-          recentTimesRef.current.shift();
+        const now = Date.now();
+        recentTimesRef.current.push({ timestamp: now, duration: timeTaken });
+        
+        recentTimesRef.current = recentTimesRef.current.filter(entry => now - entry.timestamp <= 5000);
+        
+        if (recentTimesRef.current.length > 0) {
+          const avg = recentTimesRef.current.reduce((a, b) => a + b.duration, 0) / recentTimesRef.current.length;
+          setAvgTimePerImage(avg);
         }
-        const avg = recentTimesRef.current.reduce((a, b) => a + b, 0) / recentTimesRef.current.length;
-        setAvgTimePerImage(avg);
+        
+        setSessionStats(prev => ({
+          fastestTime: Math.min(prev.fastestTime, timeTaken),
+          slowestTime: Math.max(prev.slowestTime, timeTaken),
+          totalProcessed: prev.totalProcessed + 1,
+        }));
         
         setImages(prev => prev.map(img => {
           if (img.id === imgObj.id) {
@@ -197,6 +211,14 @@ export default function App() {
   const doneCount = images.filter(img => img.status === 'done').length;
   const progressPercent = totalCount === 0 ? 0 : Math.round((doneCount / totalCount) * 100);
 
+  const completedImages = images.filter(img => img.status === 'done');
+  const totalOriginalSizeCompleted = completedImages.reduce((acc, img) => acc + img.originalSize, 0);
+  const totalJpegSizeCompleted = completedImages.reduce((acc, img) => acc + (img.jpegSize || 0), 0);
+  const totalSavedSize = Math.max(0, totalOriginalSizeCompleted - totalJpegSizeCompleted);
+  const totalSavedPercent = totalOriginalSizeCompleted > 0 
+    ? Math.round((totalSavedSize / totalOriginalSizeCompleted) * 100) 
+    : 0;
+
   const estimatedMs = pendingCount * avgTimePerImage;
   const estimatedSeconds = Math.ceil(estimatedMs / 1000);
 
@@ -259,6 +281,35 @@ export default function App() {
               </div>
               <div className="text-xs text-purple-300/50 mt-2">
                  {isConverting ? 'Processing...' : (pendingCount > 0 ? 'Ready to process' : 'All done')}
+              </div>
+            </div>
+
+            <div className="mt-4 p-5 rounded-2xl bg-[#140D2B]/50 border border-purple-500/10 flex flex-col gap-3">
+              <div className="flex items-center justify-between mb-1">
+                <h3 className="text-[11px] font-bold text-purple-400/80 uppercase tracking-widest flex items-center gap-1">
+                  <Activity className="w-3 h-3" />
+                  Session Stats
+                </h3>
+              </div>
+              <div className="grid grid-cols-2 gap-3 text-[11px]">
+                <div className="flex flex-col">
+                  <span className="text-purple-300/40 font-medium">Fastest</span>
+                  <span className="font-mono text-purple-200">
+                    {sessionStats.fastestTime === Infinity ? '--' : `${sessionStats.fastestTime.toFixed(0)}ms`}
+                  </span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-purple-300/40 font-medium">Slowest</span>
+                  <span className="font-mono text-purple-200">
+                    {sessionStats.slowestTime === 0 ? '--' : `${sessionStats.slowestTime.toFixed(0)}ms`}
+                  </span>
+                </div>
+                <div className="flex flex-col col-span-2 pt-2 border-t border-purple-500/10">
+                  <span className="text-purple-300/40 font-medium">Processed</span>
+                  <span className="font-mono text-white text-sm">
+                    {sessionStats.totalProcessed} <span className="text-purple-300/40 text-[11px]">images</span>
+                  </span>
+                </div>
               </div>
             </div>
           </div>
@@ -346,6 +397,23 @@ export default function App() {
               )}
             </div>
             
+            {doneCount > 0 && (
+              <div className="mb-4 flex flex-wrap gap-4 text-[11px] font-mono p-3 bg-purple-900/20 border border-purple-500/10 rounded-xl">
+                <div className="flex flex-col">
+                  <span className="text-purple-300/40">Total Original (Completed)</span>
+                  <span className="text-purple-200 text-sm">{formatBytes(totalOriginalSizeCompleted)}</span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-purple-300/40">Total Est. JPEG</span>
+                  <span className="text-purple-200 text-sm">{formatBytes(totalJpegSizeCompleted)}</span>
+                </div>
+                <div className="flex flex-col ml-auto text-right">
+                  <span className="text-purple-300/40">Space Saved</span>
+                  <span className="text-green-400 text-sm">-{formatBytes(totalSavedSize)} ({totalSavedPercent}%)</span>
+                </div>
+              </div>
+            )}
+
             <div className="flex-1 space-y-2 overflow-y-auto pr-2 custom-scrollbar">
               {images.map(img => (
                 <div key={img.id} className="flex flex-col sm:flex-row sm:items-center gap-4 p-4 bg-[#140D2B] rounded-2xl border border-purple-500/10 transition-colors hover:border-purple-500/30">
