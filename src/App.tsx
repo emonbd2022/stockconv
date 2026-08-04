@@ -17,11 +17,22 @@ export default function App() {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [sessionStats, setSessionStats] = useState(() => {
     const saved = localStorage.getItem('sessionStats');
-    return saved ? JSON.parse(saved) : {
+    const defaultStats = {
       fastestTime: Infinity,
       slowestTime: 0,
       totalProcessed: 0,
     };
+    if (!saved) return defaultStats;
+    try {
+      const parsed = JSON.parse(saved);
+      return {
+        fastestTime: (typeof parsed.fastestTime === 'number' && !isNaN(parsed.fastestTime)) ? parsed.fastestTime : Infinity,
+        slowestTime: (typeof parsed.slowestTime === 'number' && !isNaN(parsed.slowestTime)) ? parsed.slowestTime : 0,
+        totalProcessed: (typeof parsed.totalProcessed === 'number' && !isNaN(parsed.totalProcessed)) ? parsed.totalProcessed : 0,
+      };
+    } catch {
+      return defaultStats;
+    }
   });
 
   useEffect(() => {
@@ -377,13 +388,13 @@ export default function App() {
                 <div className="flex flex-col">
                   <span className="text-purple-300/40 font-medium">Fastest</span>
                   <span className="font-mono text-purple-200">
-                    {sessionStats.fastestTime === Infinity ? '--' : `${sessionStats.fastestTime.toFixed(0)}ms`}
+                    { (typeof sessionStats.fastestTime !== 'number' || sessionStats.fastestTime === Infinity) ? '--' : `${sessionStats.fastestTime.toFixed(0)}ms`}
                   </span>
                 </div>
                 <div className="flex flex-col">
                   <span className="text-purple-300/40 font-medium">Slowest</span>
                   <span className="font-mono text-purple-200">
-                    {sessionStats.slowestTime === 0 ? '--' : `${sessionStats.slowestTime.toFixed(0)}ms`}
+                    { (typeof sessionStats.slowestTime !== 'number' || sessionStats.slowestTime === 0) ? '--' : `${sessionStats.slowestTime.toFixed(0)}ms`}
                   </span>
                 </div>
                 <div className="flex flex-col col-span-2 pt-2 border-t border-purple-500/10">
