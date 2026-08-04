@@ -68,7 +68,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               createdAt: serverTimestamp(),
             };
             try {
-              await setDoc(userDocRef, newProfile);
+              setDoc(userDocRef, newProfile).catch(err => console.error("Error writing profile to server:", err));
               setProfile(newProfile);
               localStorage.setItem('stockconv_profile', JSON.stringify(newProfile));
             } catch (err: any) {

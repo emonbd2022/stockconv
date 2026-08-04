@@ -138,9 +138,9 @@ export default function App() {
         // Deduct credit
         if (!profile?.isUnlimited) {
           const userDocRef = doc(db, 'users', profile!.uid);
-          await updateDoc(userDocRef, {
+          updateDoc(userDocRef, {
             credits: increment(-1)
-          });
+          }).catch(err => console.error("Error deducting credit:", err));
         }
 
         const endTime = performance.now();
