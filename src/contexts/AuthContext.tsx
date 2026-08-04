@@ -52,14 +52,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (firebaseUser) {
         // Subscribe to user profile changes
         const userDocRef = doc(db, 'users', firebaseUser.uid);
+
         const unsubscribeProfile = onSnapshot(userDocRef, async (snapshot) => {
           if (snapshot.exists()) {
             const data = snapshot.data() as UserProfile;
             setProfile(data);
             localStorage.setItem('stockconv_profile', JSON.stringify(data));
           } else {
-            // Create profile if it doesn't exist
-            const newProfile: UserProfile = {
+             const newProfile: UserProfile = {
               uid: firebaseUser.uid,
               email: firebaseUser.email || '',
               credits: firebaseUser.email === 'titaniumfact97@gmail.com' ? 999999 : 10,
@@ -73,13 +73,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               localStorage.setItem('stockconv_profile', JSON.stringify(newProfile));
             } catch (err: any) {
               console.error("Error creating profile:", err);
-              setError("Failed to initialize user profile.");
             }
           }
           setLoading(false);
         }, (err) => {
           console.error("Profile snapshot error:", err);
-          setError("Error fetching user profile.");
+          setError("Error listening to user profile.");
           setLoading(false);
         });
 
