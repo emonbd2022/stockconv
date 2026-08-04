@@ -1,13 +1,23 @@
 import React from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { LogIn, FileImage, ShieldCheck, Zap } from 'lucide-react';
+import { LogIn, FileImage, ShieldCheck, Zap, XCircle } from 'lucide-react';
 
 export function Login() {
-  const { signIn } = useAuth();
+  const { signIn, error, clearError } = useAuth();
 
   return (
     <div className="min-h-screen w-full bg-[#0A0518] flex items-center justify-center p-6">
-      <div className="max-w-md w-full bg-[#140D2B]/50 rounded-[2.5rem] border border-purple-500/20 backdrop-blur-3xl p-10 shadow-2xl shadow-purple-900/40">
+      <div className="max-w-md w-full bg-[#140D2B]/50 rounded-[2.5rem] border border-purple-500/20 backdrop-blur-3xl p-10 shadow-2xl shadow-purple-900/40 relative overflow-hidden">
+        
+        {error && (
+          <div className="absolute top-0 left-0 right-0 p-4 bg-red-500/20 border-b border-red-500/30 backdrop-blur-md flex items-center justify-between z-10">
+            <span className="text-[11px] text-red-200 font-medium">{error}</span>
+            <button onClick={clearError} className="text-red-200 hover:text-white">
+              <XCircle className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
         <div className="flex flex-col items-center text-center">
           <div className="w-20 h-20 bg-gradient-to-br from-purple-600 to-indigo-700 rounded-3xl flex items-center justify-center shadow-xl shadow-purple-600/30 mb-8 transform hover:scale-105 transition-transform duration-500">
             <FileImage className="w-10 h-10 text-white" />

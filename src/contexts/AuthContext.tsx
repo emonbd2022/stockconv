@@ -22,8 +22,10 @@ interface AuthContextType {
   user: FirebaseUser | null;
   profile: UserProfile | null;
   loading: boolean;
+  error: string | null;
   signIn: () => Promise<void>;
   logout: () => Promise<void>;
+  clearError: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -32,6 +34,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
@@ -53,9 +56,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               role: user.email === 'titaniumfact97@gmail.com' ? 'admin' : 'user',
               createdAt: serverTimestamp(),
             };
-            await setDoc(userDocRef, newProfile);
-            setProfile(newProfile);
+            try {
+              await setDoc(userDocRef, newProfile);
+              setProfile(newProfile);
+            } catch (err: any) {
+              console.error("Error creating profile:", err);
+              setError("Failed to initialize user profile.");
+            }
           }
+          setLoading(false);
+        }, (err) => {
+          console.error("Profile snapshot error:", err);
+          setError("Error fetching user profile.");
           setLoading(false);
         });
 
@@ -70,16 +82,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signIn = async () => {
+    setError(null);
     const provider = new GoogleAuthProvider();
-    await signInWithPopup(auth, provider);
+    try {
+      await signInWithPopup(auth, provider);
+    } catch (err: any) {
+      if (err.code === 'auth/popup-closed-by-user') {
+        // Just ignore or set a mild message
+        console.log("Sign in popup closed by user");
+        return;
+      }
+      if (err.code === 'auth/network-request-failed') {
+        setError("Network error. Please check your connection.");
+        return;
+      }
+      setError(err.message || "An error occurred during sign in.");
+      console.error("Sign in error:", err);
+    }
   };
 
   const logout = async () => {
     await signOut(auth);
   };
 
+  const clearError = () => setError(null);
+
   return (
-    <AuthContext.Provider value={{ user, profile, loading, signIn, logout }}>
+    <AuthContext.Provider value={{ user, profile, loading, error, signIn, logout, clearError }}>
       {children}
     </AuthContext.Provider>
   );
