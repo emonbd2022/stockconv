@@ -97,6 +97,12 @@ export default function App() {
   }, []);
 
   const toggleConversion = () => {
+    if (!user) {
+      setActiveTab('dashboard');
+      addToast('Please sign in to process images', 'error');
+      return;
+    }
+
     if (isConverting) {
       stopConversionRef.current = true;
     } else {
@@ -270,10 +276,6 @@ export default function App() {
     );
   }
 
-  if (!user) {
-    return <Login />;
-  }
-
   if (profile?.isBlocked) {
     return (
       <div className="h-screen w-full bg-[#0A0518] flex flex-col items-center justify-center gap-6 p-4">
@@ -355,7 +357,7 @@ export default function App() {
               className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 ${activeTab === 'dashboard' ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/20' : 'text-purple-300/60 hover:text-purple-200 hover:bg-purple-900/30'}`}
             >
               <User className="w-4 h-4" />
-              <span className="text-xs font-bold uppercase tracking-widest">Account</span>
+              <span className="text-xs font-bold uppercase tracking-widest">{user ? 'Account' : 'Login'}</span>
             </button>
             {profile?.role === 'admin' && (
               <button 
@@ -604,7 +606,7 @@ export default function App() {
                 transition={{ duration: 0.2 }}
                 className="h-full overflow-y-auto custom-scrollbar"
               >
-                <UserDashboard />
+                {!user ? <Login /> : <UserDashboard />}
               </motion.div>
             )}
             

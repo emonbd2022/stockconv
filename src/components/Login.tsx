@@ -6,7 +6,7 @@ export function Login() {
   const { signIn, error, clearError } = useAuth();
 
   return (
-    <div className="min-h-screen w-full bg-[#0A0518] flex items-center justify-center p-6">
+    <div className="h-full w-full flex items-center justify-center p-6">
       <div className="max-w-md w-full bg-[#140D2B]/50 rounded-[2.5rem] border border-purple-500/20 backdrop-blur-3xl p-10 shadow-2xl shadow-purple-900/40 relative overflow-hidden">
         
         {error && (

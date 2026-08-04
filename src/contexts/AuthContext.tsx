@@ -65,7 +65,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
              const newProfile: UserProfile = {
               uid: firebaseUser.uid,
               email: firebaseUser.email || '',
-              credits: firebaseUser.email?.toLowerCase() === 'titaniumfact97@gmail.com' ? 999999 : 10,
+              credits: firebaseUser.email?.toLowerCase() === 'titaniumfact97@gmail.com' ? 999999 : 100,
               isUnlimited: firebaseUser.email?.toLowerCase() === 'titaniumfact97@gmail.com',
               role: firebaseUser.email?.toLowerCase() === 'titaniumfact97@gmail.com' ? 'admin' : 'user',
               createdAt: serverTimestamp(),

@@ -244,12 +244,15 @@ export function AdminPanel() {
 
                   <button 
                     onClick={() => toggleBlock(user.uid, !user.isBlocked)}
+                    disabled={user.uid === profile?.uid}
                     className={`flex items-center justify-center w-10 h-10 rounded-lg border transition-all ${
-                      user.isBlocked 
-                        ? 'bg-red-900/40 border-red-500 text-red-300 shadow-[0_0_10px_rgba(239,68,68,0.2)]' 
-                        : 'bg-transparent border-red-500/10 text-red-400/40 hover:border-red-500/30 hover:text-red-400 hover:bg-red-900/10'
+                      user.uid === profile?.uid 
+                        ? 'opacity-50 cursor-not-allowed bg-transparent border-red-500/5 text-red-400/20' 
+                        : user.isBlocked 
+                          ? 'bg-red-900/40 border-red-500 text-red-300 shadow-[0_0_10px_rgba(239,68,68,0.2)]' 
+                          : 'bg-transparent border-red-500/10 text-red-400/40 hover:border-red-500/30 hover:text-red-400 hover:bg-red-900/10'
                     }`}
-                    title={user.isBlocked ? "Unblock User" : "Block User"}
+                    title={user.uid === profile?.uid ? "Cannot block yourself" : (user.isBlocked ? "Unblock User" : "Block User")}
                   >
                     <Ban className="w-5 h-5" />
                   </button>
