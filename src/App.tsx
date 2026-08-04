@@ -7,11 +7,28 @@ import { convertPngToJpeg, downloadBlob, formatBytes, playSuccessSound, showOSNo
 export default function App() {
   const [images, setImages] = useState<ConvertedImage[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const [sessionStats, setSessionStats] = useState({
-    fastestTime: Infinity,
-    slowestTime: 0,
-    totalProcessed: 0,
+  const [sessionStats, setSessionStats] = useState(() => {
+    const saved = localStorage.getItem('sessionStats');
+    return saved ? JSON.parse(saved) : {
+      fastestTime: Infinity,
+      slowestTime: 0,
+      totalProcessed: 0,
+    };
   });
+
+  useEffect(() => {
+    localStorage.setItem('sessionStats', JSON.stringify(sessionStats));
+  }, [sessionStats]);
+
+  const [isOfflineReady, setIsOfflineReady] = useState(false);
+  
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.ready.then(() => {
+        setIsOfflineReady(true);
+      });
+    }
+  }, []);
   const [avgTimePerImage, setAvgTimePerImage] = useState<number>(500);
   const [isConverting, setIsConverting] = useState(false);
   const stopConversionRef = useRef(false);
@@ -236,6 +253,12 @@ export default function App() {
         </div>
         
         <div className="flex gap-2">
+          {isOfflineReady && (
+            <div className="px-3 py-1 rounded bg-green-900/40 border border-green-500/30 text-[11px] font-mono text-green-400 flex items-center gap-1">
+              <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div>
+              OFFLINE READY
+            </div>
+          )}
           <div className="px-3 py-1 rounded bg-purple-900/40 border border-purple-500/30 text-[11px] font-mono">
             CLIENT-SIDE CONVERSION
           </div>
