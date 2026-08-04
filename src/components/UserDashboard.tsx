@@ -1,14 +1,28 @@
 import React from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { LogOut, CreditCard, Infinity as InfinityIcon, User, Shield } from 'lucide-react';
+import { LogOut, CreditCard, Infinity as InfinityIcon, User, Shield, MessageCircle, ExternalLink, Zap } from 'lucide-react';
 
 export function UserDashboard() {
   const { profile, user, logout } = useAuth();
 
   if (!profile) return null;
 
+  const handleBuyCredits = (plan: string) => {
+    const phone = "+8801601934495";
+    const message = encodeURIComponent(`Hi Admin, I want to buy the ${plan} plan for StockConv. My email is ${profile.email}.`);
+    window.open(`https://wa.me/${phone}?text=${message}`, '_blank');
+  };
+
+  const plans = [
+    { name: '2000 Credits', price: '200 TK', value: '2000' },
+    { name: '5000 Credits', price: '400 TK', value: '5000' },
+    { name: '10000 Credits', price: '600 TK', value: '10000' },
+    { name: 'Unlimited', price: '2000 TK', value: 'unlimited' },
+  ];
+
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-6">
+      {/* Profile Card */}
       <div className="p-5 rounded-2xl bg-[#140D2B]/50 border border-purple-500/10 backdrop-blur-xl">
         <div className="flex items-center gap-4 mb-6">
           <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-purple-500/20">
@@ -33,7 +47,7 @@ export function UserDashboard() {
               <div className="w-8 h-8 rounded-lg bg-purple-900/30 flex items-center justify-center">
                 <CreditCard className="w-4 h-4 text-purple-400" />
               </div>
-              <span className="text-xs font-bold text-purple-300 uppercase tracking-wider">Credits</span>
+              <span className="text-xs font-bold text-purple-300 uppercase tracking-wider">Balance</span>
             </div>
             <div className="flex items-center gap-2">
               {profile.isUnlimited ? (
@@ -49,9 +63,42 @@ export function UserDashboard() {
           
           <div className="px-4 py-2 rounded-lg bg-yellow-900/10 border border-yellow-500/10">
             <p className="text-[10px] text-yellow-500/80 leading-relaxed">
-              1 credit is deducted per image conversion. {profile.isUnlimited ? "Your account is set to unlimited." : "Please contact admin for more credits."}
+              1 credit is deducted per image conversion. {profile.isUnlimited ? "Your account is set to unlimited." : "Choose a plan below to recharge."}
             </p>
           </div>
+        </div>
+      </div>
+
+      {/* Pricing Plans */}
+      <div className="p-5 rounded-2xl bg-[#140D2B]/50 border border-purple-500/10 backdrop-blur-xl">
+        <div className="flex items-center gap-2 mb-4">
+          <Zap className="w-4 h-4 text-purple-400" />
+          <h3 className="text-xs font-bold text-white uppercase tracking-widest">Pricing Plans</h3>
+        </div>
+
+        <div className="grid grid-cols-1 gap-2">
+          {plans.map((plan) => (
+            <button
+              key={plan.name}
+              onClick={() => handleBuyCredits(plan.name)}
+              className="flex items-center justify-between p-3 bg-[#0F0821] hover:bg-purple-900/20 rounded-xl border border-purple-500/5 hover:border-purple-500/30 transition-all group"
+            >
+              <div className="flex flex-col items-start">
+                <span className="text-[11px] font-bold text-purple-100 uppercase tracking-tight">{plan.name}</span>
+                <span className="text-[10px] text-purple-400/60">{plan.price}</span>
+              </div>
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-purple-600/10 text-purple-400 rounded-lg group-hover:bg-purple-600 group-hover:text-white transition-colors">
+                <span className="text-[10px] font-black uppercase">Buy Now</span>
+                <MessageCircle className="w-3.5 h-3.5" />
+              </div>
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-4 flex items-center justify-center gap-2 py-3 bg-purple-950/20 rounded-xl border border-dashed border-purple-500/20">
+          <p className="text-[9px] text-purple-400/60 text-center px-4">
+            After clicking "Buy Now", you will be redirected to WhatsApp to complete the payment via Bkash/Rocket.
+          </p>
         </div>
       </div>
     </div>

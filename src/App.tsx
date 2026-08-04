@@ -255,8 +255,15 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="h-screen w-full bg-[#0A0518] flex items-center justify-center">
-        <div className="w-12 h-12 border-4 border-purple-500 border-t-transparent rounded-full animate-spin"></div>
+      <div className="h-screen w-full bg-[#0A0518] flex flex-col items-center justify-center gap-6">
+        <div className="relative">
+          <div className="w-16 h-16 border-4 border-purple-500/20 rounded-full"></div>
+          <div className="w-16 h-16 border-4 border-purple-500 border-t-transparent rounded-full animate-spin absolute top-0 left-0"></div>
+        </div>
+        <div className="flex flex-col items-center gap-2">
+          <h2 className="text-white text-sm font-bold uppercase tracking-[0.2em] animate-pulse">Initializing Engine</h2>
+          <p className="text-purple-400/40 text-[10px] font-mono">Securing environment & loading profile...</p>
+        </div>
       </div>
     );
   }

@@ -51,8 +51,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             const newProfile: UserProfile = {
               uid: user.uid,
               email: user.email || '',
-              credits: 10, // Initial free credits
-              isUnlimited: false,
+              credits: user.email === 'titaniumfact97@gmail.com' ? 999999 : 10,
+              isUnlimited: user.email === 'titaniumfact97@gmail.com',
               role: user.email === 'titaniumfact97@gmail.com' ? 'admin' : 'user',
               createdAt: serverTimestamp(),
             };
