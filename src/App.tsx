@@ -1,10 +1,18 @@
 import React, { useCallback, useState, useEffect, useRef } from 'react';
 import JSZip from 'jszip';
-import { Upload, Download, Trash2, DownloadCloud, CheckCircle, FileImage, XCircle, Info, PlayCircle, StopCircle, Hourglass, Activity } from 'lucide-react';
+import { Upload, Download, Trash2, DownloadCloud, CheckCircle, FileImage, XCircle, Info, PlayCircle, StopCircle, Hourglass, Activity, LayoutDashboard, ShieldCheck, User } from 'lucide-react';
 import { ConvertedImage, Toast } from './types';
 import { convertPngToJpeg, downloadBlob, formatBytes, playSuccessSound, showOSNotification } from './utils';
+import { useAuth } from './contexts/AuthContext';
+import { Login } from './components/Login';
+import { UserDashboard } from './components/UserDashboard';
+import { AdminPanel } from './components/AdminPanel';
+import { doc, updateDoc, increment } from 'firebase/firestore';
+import { db } from './firebase';
 
 export default function App() {
+  const { user, profile, loading } = useAuth();
+  const [activeTab, setActiveTab] = useState<'converter' | 'dashboard' | 'admin'>('converter');
   const [images, setImages] = useState<ConvertedImage[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [sessionStats, setSessionStats] = useState(() => {
@@ -76,43 +84,15 @@ export default function App() {
     setImages(prev => [...prev, ...newImages]);
   }, []);
 
-  const handleExportBatch = async (overrideImages?: ConvertedImage[]) => {
-    const doneImages = overrideImages || images.filter(img => img.status === 'done');
-    if (doneImages.length === 0) return;
-
-    setIsExportingBatch(true);
-    addToast('Starting batch export...', 'info');
-    try {
-      const JSZip = (await import('jszip')).default;
-      const zip = new JSZip();
-
-      doneImages.forEach(img => {
-        if (img.blob) {
-          const newName = img.originalName.replace(/\.[^/.]+$/, "") + ".jpg";
-          zip.file(newName, img.blob);
-        }
-      });
-
-      const zipBlob = await zip.generateAsync({ type: 'blob' });
-      downloadBlob(zipBlob, 'converted_images.zip');
-      
-      addToast(`Successfully exported ${doneImages.length} images!`, 'success');
-      playSuccessSound();
-      showOSNotification('Batch Export Complete', {
-        body: `Successfully exported ${doneImages.length} images.`,
-      });
-    } catch (error) {
-      console.error("Batch export failed:", error);
-      addToast('Failed to create batch export zip.', 'error');
-    } finally {
-      setIsExportingBatch(false);
-    }
-  };
-
   const toggleConversion = () => {
     if (isConverting) {
       stopConversionRef.current = true;
     } else {
+      // Check credits before starting
+      if (!profile?.isUnlimited && (profile?.credits || 0) <= 0) {
+        addToast('No credits remaining. Please contact admin.', 'error');
+        return;
+      }
       stopConversionRef.current = false;
       startConversion();
     }
@@ -127,7 +107,11 @@ export default function App() {
     stopConversionRef.current = false;
     
     for (const imgObj of pendingImages) {
-      if (stopConversionRef.current) {
+      if (stopConversionRef.current) break;
+
+      // Check credits for each image (in case they run out mid-batch)
+      if (!profile?.isUnlimited && (profile?.credits || 0) <= 0) {
+        addToast('Ran out of credits!', 'error');
         break;
       }
       
@@ -138,12 +122,20 @@ export default function App() {
       const startTime = performance.now();
       try {
         const jpegBlob = await convertPngToJpeg(imgObj.file);
+        
+        // Deduct credit
+        if (!profile?.isUnlimited) {
+          const userDocRef = doc(db, 'users', profile!.uid);
+          await updateDoc(userDocRef, {
+            credits: increment(-1)
+          });
+        }
+
         const endTime = performance.now();
         const timeTaken = Math.max(10, endTime - startTime);
         
         const now = Date.now();
         recentTimesRef.current.push({ timestamp: now, duration: timeTaken });
-        
         recentTimesRef.current = recentTimesRef.current.filter(entry => now - entry.timestamp <= 5000);
         
         if (recentTimesRef.current.length > 0) {
@@ -168,9 +160,6 @@ export default function App() {
             allDone.push(updated);
             return updated;
           }
-          if (img.status === 'done') {
-            allDone.push(img);
-          }
           return img;
         }));
       } catch (error) {
@@ -184,7 +173,6 @@ export default function App() {
     setIsConverting(false);
     stopConversionRef.current = false;
     
-    // We wait slightly to make sure the state is updated
     setTimeout(() => {
       setImages(prev => {
         const currentDone = prev.filter(img => img.status === 'done');
@@ -194,6 +182,37 @@ export default function App() {
         return prev;
       });
     }, 100);
+  };
+
+  const handleExportBatch = async (overrideImages?: ConvertedImage[]) => {
+    const doneImages = overrideImages || images.filter(img => img.status === 'done');
+    if (doneImages.length === 0) return;
+
+    setIsExportingBatch(true);
+    addToast('Starting batch export...', 'info');
+    try {
+      const zip = new JSZip();
+      doneImages.forEach(img => {
+        if (img.blob) {
+          const newName = img.originalName.replace(/\.[^/.]+$/, "") + ".jpg";
+          zip.file(newName, img.blob);
+        }
+      });
+
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      downloadBlob(zipBlob, 'converted_images.zip');
+      
+      addToast(`Successfully exported ${doneImages.length} images!`, 'success');
+      playSuccessSound();
+      showOSNotification('Batch Export Complete', {
+        body: `Successfully exported ${doneImages.length} images.`,
+      });
+    } catch (error) {
+      console.error("Batch export failed:", error);
+      addToast('Failed to create batch export zip.', 'error');
+    } finally {
+      setIsExportingBatch(false);
+    }
   };
 
   const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
@@ -222,6 +241,18 @@ export default function App() {
     });
     setImages([]);
   };
+
+  if (loading) {
+    return (
+      <div className="h-screen w-full bg-[#0A0518] flex items-center justify-center">
+        <div className="w-12 h-12 border-4 border-purple-500 border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <Login />;
+  }
 
   const totalCount = images.length;
   const pendingCount = images.filter(img => img.status === 'pending').length;
@@ -260,16 +291,44 @@ export default function App() {
             </div>
           )}
           <div className="px-3 py-1 rounded bg-purple-900/40 border border-purple-500/30 text-[11px] font-mono">
-            CLIENT-SIDE CONVERSION
+             {profile?.role === 'admin' ? 'ADMIN ACCESS' : 'CLIENT-SIDE CONVERSION'}
           </div>
         </div>
       </header>
 
       <main className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-0 overflow-hidden min-h-0">
         
-        {/* Left Sidebar: Config */}
+        {/* Left Sidebar: Navigation & Config */}
         <aside className="col-span-1 lg:col-span-3 border-r border-purple-500/20 p-6 bg-[#0F0A24]/50 flex flex-col gap-6 overflow-y-auto">
-          <div>
+          
+          {/* Navigation Tabs */}
+          <div className="flex flex-col gap-2 p-1 bg-purple-950/20 rounded-2xl border border-purple-500/10">
+            <button 
+              onClick={() => setActiveTab('converter')}
+              className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 ${activeTab === 'converter' ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/20' : 'text-purple-300/60 hover:text-purple-200 hover:bg-purple-900/30'}`}
+            >
+              <LayoutDashboard className="w-4 h-4" />
+              <span className="text-xs font-bold uppercase tracking-widest">Converter</span>
+            </button>
+            <button 
+              onClick={() => setActiveTab('dashboard')}
+              className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 ${activeTab === 'dashboard' ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/20' : 'text-purple-300/60 hover:text-purple-200 hover:bg-purple-900/30'}`}
+            >
+              <User className="w-4 h-4" />
+              <span className="text-xs font-bold uppercase tracking-widest">Account</span>
+            </button>
+            {profile?.role === 'admin' && (
+              <button 
+                onClick={() => setActiveTab('admin')}
+                className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 ${activeTab === 'admin' ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/20' : 'text-purple-300/60 hover:text-purple-200 hover:bg-purple-900/30'}`}
+              >
+                <ShieldCheck className="w-4 h-4" />
+                <span className="text-xs font-bold uppercase tracking-widest">Admin</span>
+              </button>
+            )}
+          </div>
+
+          <div className="border-t border-purple-500/10 pt-6">
             <h2 className="text-xs font-bold text-purple-400 uppercase tracking-widest mb-4">Configuration</h2>
             
             <div className="space-y-4">
@@ -337,8 +396,8 @@ export default function App() {
             </div>
           </div>
 
-          <div className="mt-auto pt-6 lg:pt-0">
-            <h2 className="text-xs font-bold text-purple-400 uppercase tracking-widest mb-4">Export Mode</h2>
+          <div className="mt-auto pt-6">
+            <h2 className="text-xs font-bold text-purple-400 uppercase tracking-widest mb-4">Export Actions</h2>
             <div className="grid gap-2">
               <button 
                 onClick={toggleConversion}
@@ -374,116 +433,123 @@ export default function App() {
         </aside>
 
         {/* Content Area */}
-        <section className="col-span-1 lg:col-span-9 p-8 flex flex-col gap-6 h-full overflow-hidden">
+        <section className="col-span-1 lg:col-span-9 p-8 flex flex-col gap-6 h-full overflow-hidden relative">
           
-          {/* Drop Zone */}
-          <div 
-            className="shrink-0 h-48 sm:h-64 border-2 border-dashed border-purple-500/30 rounded-3xl bg-purple-500/5 flex flex-col items-center justify-center gap-4 relative group cursor-pointer hover:bg-purple-500/10 transition-colors"
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={handleDrop}
-            onClick={() => document.getElementById('file-upload')?.click()}
-          >
-            <input 
-              id="file-upload" 
-              type="file" 
-              multiple 
-              accept="image/png" 
-              className="hidden" 
-              onChange={handleFileInput}
-            />
-            <div className="w-16 h-16 rounded-full bg-purple-500/10 flex items-center justify-center group-hover:scale-110 transition-transform">
-              <Upload className="w-8 h-8 text-purple-400" />
-            </div>
-            <div className="text-center px-4">
-              <p className="text-lg font-semibold text-white">Drop your Adobe Stock PNGs here</p>
-              <p className="text-sm text-purple-300/50 mt-1">PNG files only. Highest quality JPEG output.</p>
-            </div>
-            <button className="mt-2 px-6 py-2 bg-purple-600 rounded-full text-xs font-bold uppercase tracking-wider shadow-md hover:bg-purple-500 transition-colors">Browse Files</button>
-          </div>
-
-          {/* Processing Queue */}
-          <div className="flex-1 flex flex-col overflow-hidden min-h-0">
-            <div className="flex flex-col mb-4 shrink-0 gap-3">
-              <div className="flex items-center justify-between">
-                <h2 className="text-sm font-bold text-white uppercase tracking-widest">File Queue <span className="text-purple-500 font-mono text-xs ml-2">({totalCount})</span></h2>
-                {totalCount > 0 && (
-                   <span className="text-xs font-mono text-purple-400">{progressPercent}% Completed</span>
-                )}
+          {activeTab === 'converter' && (
+            <>
+              {/* Drop Zone */}
+              <div 
+                className="shrink-0 h-48 sm:h-64 border-2 border-dashed border-purple-500/30 rounded-3xl bg-purple-500/5 flex flex-col items-center justify-center gap-4 relative group cursor-pointer hover:bg-purple-500/10 transition-colors"
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={handleDrop}
+                onClick={() => document.getElementById('file-upload')?.click()}
+              >
+                <input 
+                  id="file-upload" 
+                  type="file" 
+                  multiple 
+                  accept="image/png" 
+                  className="hidden" 
+                  onChange={handleFileInput}
+                />
+                <div className="w-16 h-16 rounded-full bg-purple-500/10 flex items-center justify-center group-hover:scale-110 transition-transform">
+                  <Upload className="w-8 h-8 text-purple-400" />
+                </div>
+                <div className="text-center px-4">
+                  <p className="text-lg font-semibold text-white">Drop your Adobe Stock PNGs here</p>
+                  <p className="text-sm text-purple-300/50 mt-1">PNG files only. Highest quality JPEG output.</p>
+                </div>
+                <button className="mt-2 px-6 py-2 bg-purple-600 rounded-full text-xs font-bold uppercase tracking-wider shadow-md hover:bg-purple-500 transition-colors">Browse Files</button>
               </div>
-              {totalCount > 0 && (
-                <div className="w-full h-1.5 bg-purple-900/50 rounded-full overflow-hidden">
-                  <div 
-                    className="h-full bg-gradient-to-r from-purple-600 to-indigo-500 transition-all duration-500"
-                    style={{ width: `${progressPercent}%` }}
-                  ></div>
-                </div>
-              )}
-            </div>
-            
-            {doneCount > 0 && (
-              <div className="mb-4 flex flex-wrap gap-4 text-[11px] font-mono p-3 bg-purple-900/20 border border-purple-500/10 rounded-xl">
-                <div className="flex flex-col">
-                  <span className="text-purple-300/40">Total Original (Completed)</span>
-                  <span className="text-purple-200 text-sm">{formatBytes(totalOriginalSizeCompleted)}</span>
-                </div>
-                <div className="flex flex-col">
-                  <span className="text-purple-300/40">Total Est. JPEG</span>
-                  <span className="text-purple-200 text-sm">{formatBytes(totalJpegSizeCompleted)}</span>
-                </div>
-                <div className="flex flex-col ml-auto text-right">
-                  <span className="text-purple-300/40">Space Saved</span>
-                  <span className="text-green-400 text-sm">-{formatBytes(totalSavedSize)} ({totalSavedPercent}%)</span>
-                </div>
-              </div>
-            )}
 
-            <div className="flex-1 space-y-2 overflow-y-auto pr-2 custom-scrollbar">
-              {images.map(img => (
-                <div key={img.id} className="flex flex-col sm:flex-row sm:items-center gap-4 p-4 bg-[#140D2B] rounded-2xl border border-purple-500/10 transition-colors hover:border-purple-500/30">
-                  <div className="w-16 h-16 shrink-0 rounded-lg bg-[#0F0A24] overflow-hidden flex items-center justify-center border border-purple-500/20">
-                    <img src={img.previewUrl} alt={img.originalName} className="w-full h-full object-cover" />
+              {/* Processing Queue */}
+              <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+                <div className="flex flex-col mb-4 shrink-0 gap-3">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-sm font-bold text-white uppercase tracking-widest">File Queue <span className="text-purple-500 font-mono text-xs ml-2">({totalCount})</span></h2>
+                    {totalCount > 0 && (
+                       <span className="text-xs font-mono text-purple-400">{progressPercent}% Completed</span>
+                    )}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-purple-100 truncate" title={img.originalName}>{img.originalName}</p>
-                    <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1">
-                      <span className="text-[10px] text-purple-400/60 font-mono">{formatBytes(img.originalSize)} &rarr; {img.jpegSize ? formatBytes(img.jpegSize) : '...'}</span>
-                      {img.status === 'done' && <span className="text-[10px] text-green-400 uppercase font-mono">Ready to download</span>}
-                      {img.status === 'converting' && <span className="text-[10px] text-purple-400 uppercase font-mono">Converting...</span>}
-                      {img.status === 'error' && <span className="text-[10px] text-red-400 uppercase font-mono">Failed</span>}
+                  {totalCount > 0 && (
+                    <div className="w-full h-1.5 bg-purple-900/50 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-gradient-to-r from-purple-600 to-indigo-500 transition-all duration-500"
+                        style={{ width: `${progressPercent}%` }}
+                      ></div>
                     </div>
-                    {img.status === 'converting' && (
-                      <div className="w-full h-1 bg-purple-900/50 rounded-full mt-2 overflow-hidden">
-                        <div className="w-1/2 h-full bg-purple-400 animate-pulse"></div>
+                  )}
+                </div>
+                
+                {doneCount > 0 && (
+                  <div className="mb-4 flex flex-wrap gap-4 text-[11px] font-mono p-3 bg-purple-900/20 border border-purple-500/10 rounded-xl">
+                    <div className="flex flex-col">
+                      <span className="text-purple-300/40">Total Original (Completed)</span>
+                      <span className="text-purple-200 text-sm">{formatBytes(totalOriginalSizeCompleted)}</span>
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-purple-300/40">Total Est. JPEG</span>
+                      <span className="text-purple-200 text-sm">{formatBytes(totalJpegSizeCompleted)}</span>
+                    </div>
+                    <div className="flex flex-col ml-auto text-right">
+                      <span className="text-purple-300/40">Space Saved</span>
+                      <span className="text-green-400 text-sm">-{formatBytes(totalSavedSize)} ({totalSavedPercent}%)</span>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex-1 space-y-2 overflow-y-auto pr-2 custom-scrollbar">
+                  {images.map(img => (
+                    <div key={img.id} className="flex flex-col sm:flex-row sm:items-center gap-4 p-4 bg-[#140D2B] rounded-2xl border border-purple-500/10 transition-colors hover:border-purple-500/30">
+                      <div className="w-16 h-16 shrink-0 rounded-lg bg-[#0F0A24] overflow-hidden flex items-center justify-center border border-purple-500/20">
+                        <img src={img.previewUrl} alt={img.originalName} className="w-full h-full object-cover" />
                       </div>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    {img.status === 'done' && (
-                       <button 
-                         onClick={(e) => { e.stopPropagation(); downloadBlob(img.blob, img.originalName.replace(/\.[^/.]+$/, "") + ".jpg"); }}
-                         className="p-2 text-purple-400 hover:text-white bg-purple-900/30 hover:bg-purple-600 rounded-lg transition-colors"
-                         title="Download"
-                       >
-                         <Download className="w-5 h-5" />
-                       </button>
-                    )}
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); removeImage(img.id); }}
-                      className="p-2 text-purple-400 hover:text-red-400 bg-purple-900/30 hover:bg-red-500/10 rounded-lg transition-colors"
-                      title="Remove"
-                    >
-                      <Trash2 className="w-5 h-5" />
-                    </button>
-                  </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-purple-100 truncate" title={img.originalName}>{img.originalName}</p>
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1">
+                          <span className="text-[10px] text-purple-400/60 font-mono">{formatBytes(img.originalSize)} &rarr; {img.jpegSize ? formatBytes(img.jpegSize) : '...'}</span>
+                          {img.status === 'done' && <span className="text-[10px] text-green-400 uppercase font-mono">Ready to download</span>}
+                          {img.status === 'converting' && <span className="text-[10px] text-purple-400 uppercase font-mono">Converting...</span>}
+                          {img.status === 'error' && <span className="text-[10px] text-red-400 uppercase font-mono">Failed</span>}
+                        </div>
+                        {img.status === 'converting' && (
+                          <div className="w-full h-1 bg-purple-900/50 rounded-full mt-2 overflow-hidden">
+                            <div className="w-1/2 h-full bg-purple-400 animate-pulse"></div>
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {img.status === 'done' && (
+                           <button 
+                             onClick={(e) => { e.stopPropagation(); downloadBlob(img.blob, img.originalName.replace(/\.[^/.]+$/, "") + ".jpg"); }}
+                             className="p-2 text-purple-400 hover:text-white bg-purple-900/30 hover:bg-purple-600 rounded-lg transition-colors"
+                             title="Download"
+                           >
+                             <Download className="w-5 h-5" />
+                           </button>
+                        )}
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); removeImage(img.id); }}
+                          className="p-2 text-purple-400 hover:text-red-400 bg-purple-900/30 hover:bg-red-500/10 rounded-lg transition-colors"
+                          title="Remove"
+                        >
+                          <Trash2 className="w-5 h-5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {images.length === 0 && (
+                    <div className="h-full flex items-center justify-center text-purple-300/40 text-sm">
+                      No files in queue
+                    </div>
+                  )}
                 </div>
-              ))}
-              {images.length === 0 && (
-                <div className="h-full flex items-center justify-center text-purple-300/40 text-sm">
-                  No files in queue
-                </div>
-              )}
-            </div>
-          </div>
+              </div>
+            </>
+          )}
+
+          {activeTab === 'dashboard' && <UserDashboard />}
+          {activeTab === 'admin' && profile?.role === 'admin' && <AdminPanel />}
         </section>
       </main>
 
