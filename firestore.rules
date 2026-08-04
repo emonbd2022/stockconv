@@ -16,7 +16,10 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isSignedIn() && request.auth.token.email == 'titaniumfact97@gmail.com';
+      return isSignedIn() && (
+        request.auth.token.email == 'titaniumfact97@gmail.com' ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
+      );
     }
 
     function isValidUser(data) {
@@ -42,7 +45,7 @@ service cloud.firestore {
         request.resource.data.email == resource.data.email &&
         request.resource.data.role == resource.data.role &&
         request.resource.data.isUnlimited == resource.data.isUnlimited &&
-        request.resource.data.credits == resource.data.credits - 1
+        request.resource.data.get('isBlocked', false) == resource.data.get('isBlocked', false)
       );
 
       allow delete: if false;

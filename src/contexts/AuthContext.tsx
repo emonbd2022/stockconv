@@ -16,6 +16,9 @@ interface UserProfile {
   isUnlimited: boolean;
   role: 'user' | 'admin';
   createdAt: any;
+  isBlocked?: boolean;
+  nickname?: string;
+  processedCount?: number;
 }
 
 interface AuthContextType {
@@ -62,10 +65,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
              const newProfile: UserProfile = {
               uid: firebaseUser.uid,
               email: firebaseUser.email || '',
-              credits: firebaseUser.email === 'titaniumfact97@gmail.com' ? 999999 : 10,
-              isUnlimited: firebaseUser.email === 'titaniumfact97@gmail.com',
-              role: firebaseUser.email === 'titaniumfact97@gmail.com' ? 'admin' : 'user',
+              credits: firebaseUser.email?.toLowerCase() === 'titaniumfact97@gmail.com' ? 999999 : 10,
+              isUnlimited: firebaseUser.email?.toLowerCase() === 'titaniumfact97@gmail.com',
+              role: firebaseUser.email?.toLowerCase() === 'titaniumfact97@gmail.com' ? 'admin' : 'user',
               createdAt: serverTimestamp(),
+              processedCount: 0,
+              isBlocked: false,
             };
             try {
               setDoc(userDocRef, newProfile).catch(err => console.error("Error writing profile to server:", err));

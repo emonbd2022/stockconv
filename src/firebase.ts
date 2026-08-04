@@ -1,7 +1,10 @@
+/// <reference types="vite/client" />
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { initializeFirestore } from 'firebase/firestore';
 import localConfig from '../firebase-applet-config.json';
+
+const isCustomProject = import.meta.env.VITE_FIREBASE_PROJECT_ID && import.meta.env.VITE_FIREBASE_PROJECT_ID !== localConfig.projectId;
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || localConfig.apiKey,
@@ -12,7 +15,7 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID || localConfig.appId
 };
 
-const databaseId = import.meta.env.VITE_FIREBASE_DATABASE_ID || localConfig.firestoreDatabaseId || '(default)';
+const databaseId = import.meta.env.VITE_FIREBASE_DATABASE_ID || (isCustomProject ? '(default)' : localConfig.firestoreDatabaseId) || '(default)';
 
 const app = initializeApp(firebaseConfig);
 export const db = initializeFirestore(app, {

@@ -1,6 +1,7 @@
 import React from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { LogOut, CreditCard, Infinity as InfinityIcon, User, Shield, MessageCircle, ExternalLink, Zap } from 'lucide-react';
+import { LogOut, CreditCard, Infinity as InfinityIcon, User, Shield, MessageCircle, Zap, ShieldCheck } from 'lucide-react';
+import { motion } from 'motion/react';
 
 export function UserDashboard() {
   const { profile, user, logout } = useAuth();
@@ -14,14 +15,18 @@ export function UserDashboard() {
   };
 
   const plans = [
-    { name: '2000 Credits', price: '200 TK', value: '2000' },
-    { name: '5000 Credits', price: '400 TK', value: '5000' },
-    { name: '10000 Credits', price: '600 TK', value: '10000' },
-    { name: 'Unlimited', price: '2000 TK', value: 'unlimited' },
+    { name: 'Starter', credits: '2,000', price: '200', value: '2000' },
+    { name: 'Pro', credits: '5,000', price: '400', value: '5000', popular: true },
+    { name: 'Enterprise', credits: '10,000', price: '600', value: '10000' },
+    { name: 'Unlimited', credits: 'Infinite', price: '2000', value: 'unlimited', icon: <InfinityIcon className="w-5 h-5 text-purple-400" /> },
   ];
 
   return (
-    <div className="flex flex-col gap-6">
+    <motion.div 
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="flex flex-col gap-6"
+    >
       {/* Profile Card */}
       <div className="p-5 rounded-2xl bg-[#140D2B]/50 border border-purple-500/10 backdrop-blur-xl">
         <div className="flex items-center gap-4 mb-6">
@@ -61,8 +66,8 @@ export function UserDashboard() {
             </div>
           </div>
           
-          <div className="px-4 py-2 rounded-lg bg-yellow-900/10 border border-yellow-500/10">
-            <p className="text-[10px] text-yellow-500/80 leading-relaxed">
+          <div className="px-4 py-3 rounded-lg bg-purple-900/10 border border-purple-500/10">
+            <p className="text-[11px] text-purple-300/80 leading-relaxed">
               1 credit is deducted per image conversion. {profile.isUnlimited ? "Your account is set to unlimited." : "Choose a plan below to recharge."}
             </p>
           </div>
@@ -71,36 +76,68 @@ export function UserDashboard() {
 
       {/* Pricing Plans */}
       <div className="p-5 rounded-2xl bg-[#140D2B]/50 border border-purple-500/10 backdrop-blur-xl">
-        <div className="flex items-center gap-2 mb-4">
+        <div className="flex items-center gap-2 mb-6">
           <Zap className="w-4 h-4 text-purple-400" />
-          <h3 className="text-xs font-bold text-white uppercase tracking-widest">Pricing Plans</h3>
+          <h3 className="text-sm font-bold text-white uppercase tracking-widest">Upgrade Plan</h3>
         </div>
 
-        <div className="grid grid-cols-1 gap-2">
-          {plans.map((plan) => (
-            <button
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {plans.map((plan, i) => (
+            <motion.button
               key={plan.name}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.1 }}
               onClick={() => handleBuyCredits(plan.name)}
-              className="flex items-center justify-between p-3 bg-[#0F0821] hover:bg-purple-900/20 rounded-xl border border-purple-500/5 hover:border-purple-500/30 transition-all group"
+              className={`relative flex flex-col items-center justify-center p-6 rounded-2xl border transition-all text-left overflow-hidden group ${
+                plan.popular 
+                  ? 'bg-purple-900/20 border-purple-400/40 hover:border-purple-400 hover:bg-purple-900/30 shadow-lg shadow-purple-900/20' 
+                  : 'bg-[#0F0821] border-purple-500/10 hover:border-purple-500/30 hover:bg-[#1A103C]'
+              }`}
             >
-              <div className="flex flex-col items-start">
-                <span className="text-[11px] font-bold text-purple-100 uppercase tracking-tight">{plan.name}</span>
-                <span className="text-[10px] text-purple-400/60">{plan.price}</span>
+              {plan.popular && (
+                <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-purple-500 to-indigo-500" />
+              )}
+              
+              <div className="w-full flex justify-between items-center mb-4">
+                <span className={`text-[10px] font-bold uppercase tracking-widest ${plan.popular ? 'text-purple-300' : 'text-purple-400/60'}`}>
+                  {plan.name}
+                </span>
+                {plan.popular && (
+                  <span className="text-[9px] font-bold uppercase tracking-wider bg-purple-500 text-white px-2 py-0.5 rounded-full">
+                    Best Value
+                  </span>
+                )}
               </div>
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-purple-600/10 text-purple-400 rounded-lg group-hover:bg-purple-600 group-hover:text-white transition-colors">
-                <span className="text-[10px] font-black uppercase">Buy Now</span>
+              
+              <div className="w-full flex items-baseline gap-1 mb-2">
+                <span className="text-3xl font-black text-white">{plan.price}</span>
+                <span className="text-xs font-bold text-purple-400/60 uppercase">TK</span>
+              </div>
+              
+              <div className="w-full flex items-center gap-2 mb-6">
+                {plan.icon ? plan.icon : <ShieldCheck className="w-4 h-4 text-purple-400" />}
+                <span className="text-sm font-bold text-purple-200">{plan.credits} Credits</span>
+              </div>
+
+              <div className={`w-full py-2.5 rounded-xl flex items-center justify-center gap-2 text-xs font-bold uppercase tracking-wider transition-colors ${
+                plan.popular 
+                  ? 'bg-purple-600 text-white group-hover:bg-purple-500' 
+                  : 'bg-purple-900/30 text-purple-300 group-hover:bg-purple-600 group-hover:text-white'
+              }`}>
+                Buy Now
                 <MessageCircle className="w-3.5 h-3.5" />
               </div>
-            </button>
+            </motion.button>
           ))}
         </div>
 
-        <div className="mt-4 flex items-center justify-center gap-2 py-3 bg-purple-950/20 rounded-xl border border-dashed border-purple-500/20">
-          <p className="text-[9px] text-purple-400/60 text-center px-4">
+        <div className="mt-6 flex items-center justify-center p-4 bg-purple-950/20 rounded-xl border border-dashed border-purple-500/20">
+          <p className="text-[10px] text-purple-400/60 text-center max-w-sm">
             After clicking "Buy Now", you will be redirected to WhatsApp to complete the payment via Bkash/Rocket.
           </p>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }

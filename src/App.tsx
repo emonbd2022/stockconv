@@ -12,7 +12,7 @@ import { doc, updateDoc, increment } from 'firebase/firestore';
 import { db } from './firebase';
 
 export default function App() {
-  const { user, profile, loading } = useAuth();
+  const { user, profile, loading, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<'converter' | 'dashboard' | 'admin'>('converter');
   const [images, setImages] = useState<ConvertedImage[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -135,12 +135,13 @@ export default function App() {
       try {
         const jpegBlob = await convertPngToJpeg(imgObj.file);
         
-        // Deduct credit
-        if (!profile?.isUnlimited) {
-          const userDocRef = doc(db, 'users', profile!.uid);
+        // Deduct credit & track processed
+        if (profile) {
+          const userDocRef = doc(db, 'users', profile.uid);
           updateDoc(userDocRef, {
-            credits: increment(-1)
-          }).catch(err => console.error("Error deducting credit:", err));
+            credits: profile.isUnlimited ? increment(0) : increment(-1),
+            processedCount: increment(1)
+          }).catch(err => console.error("Error updating stats:", err));
         }
 
         const endTime = performance.now();
@@ -271,6 +272,26 @@ export default function App() {
 
   if (!user) {
     return <Login />;
+  }
+
+  if (profile?.isBlocked) {
+    return (
+      <div className="h-screen w-full bg-[#0A0518] flex flex-col items-center justify-center gap-6 p-4">
+        <div className="text-red-500 mb-4">
+          <XCircle className="w-16 h-16 mx-auto" />
+        </div>
+        <h2 className="text-white text-xl font-bold uppercase tracking-wider text-center">Account Suspended</h2>
+        <p className="text-purple-400 text-sm text-center max-w-md">
+          Your account has been blocked by the administrator. If you think this is a mistake, please contact support.
+        </p>
+        <button
+          onClick={logout}
+          className="mt-6 px-6 py-2 bg-red-900/30 text-red-400 rounded-lg hover:bg-red-900/50 transition-colors border border-red-500/20"
+        >
+          Sign Out
+        </button>
+      </div>
+    );
   }
 
   const totalCount = images.length;
