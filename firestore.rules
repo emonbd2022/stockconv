@@ -31,31 +31,26 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow get: if isOwner(userId) || isAdmin();
+      allow get: if isSignedIn();
       allow list: if isAdmin();
       
       allow create: if isSignedIn() && 
                       request.auth.uid == userId &&
-                      isValidUser(request.resource.data) &&
-                      request.resource.data.uid == request.auth.uid &&
+                      request.resource.data.uid == userId &&
                       (request.resource.data.email == 'titaniumfact97@gmail.com' ? 
-                        (request.resource.data.role == 'admin' && request.resource.data.credits == 999999 && request.resource.data.isUnlimited == true) : 
-                        (request.resource.data.role == 'user' && request.resource.data.credits == 10 && request.resource.data.isUnlimited == false)) &&
-                      request.resource.data.createdAt == request.time;
+                        (request.resource.data.role == 'admin' && request.resource.data.credits >= 0) : 
+                        (request.resource.data.role == 'user' && request.resource.data.credits == 10 && request.resource.data.isUnlimited == false));
 
-      allow update: if (isAdmin()) || (
+      allow update: if isAdmin() || (
         isOwner(userId) && 
-        isValidUser(request.resource.data) &&
         request.resource.data.uid == resource.data.uid &&
         request.resource.data.email == resource.data.email &&
         request.resource.data.role == resource.data.role &&
         request.resource.data.isUnlimited == resource.data.isUnlimited &&
-        request.resource.data.createdAt == resource.data.createdAt &&
-        // Action: Deduct 1 credit
         request.resource.data.credits == resource.data.credits - 1
       );
 
-      allow delete: if false; // Profiles cannot be deleted
+      allow delete: if false;
     }
   }
 }
