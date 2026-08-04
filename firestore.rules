@@ -8,7 +8,7 @@ service cloud.firestore {
 
     // Helper functions
     function isSignedIn() {
-      return request.auth != null && request.auth.token.email_verified == true;
+      return request.auth != null;
     }
 
     function isOwner(userId) {
@@ -24,7 +24,7 @@ service cloud.firestore {
              data.uid.size() <= 128 &&
              data.email is string &&
              data.email.size() <= 256 &&
-             data.credits is int &&
+             data.credits is number &&
              data.isUnlimited is bool &&
              data.role in ['user', 'admin'] &&
              data.createdAt is timestamp;
@@ -38,11 +38,9 @@ service cloud.firestore {
                       request.auth.uid == userId &&
                       isValidUser(request.resource.data) &&
                       request.resource.data.uid == request.auth.uid &&
-                      request.resource.data.credits == 10 &&
-                      request.resource.data.isUnlimited == false &&
                       (request.resource.data.email == 'titaniumfact97@gmail.com' ? 
-                        request.resource.data.role == 'admin' : 
-                        request.resource.data.role == 'user') &&
+                        (request.resource.data.role == 'admin' && request.resource.data.credits == 999999 && request.resource.data.isUnlimited == true) : 
+                        (request.resource.data.role == 'user' && request.resource.data.credits == 10 && request.resource.data.isUnlimited == false)) &&
                       request.resource.data.createdAt == request.time;
 
       allow update: if (isAdmin()) || (
