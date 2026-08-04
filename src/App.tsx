@@ -1,6 +1,7 @@
 import React, { useCallback, useState, useEffect, useRef } from 'react';
 import JSZip from 'jszip';
 import { Upload, Download, Trash2, DownloadCloud, CheckCircle, FileImage, XCircle, Info, PlayCircle, StopCircle, Hourglass, Activity, LayoutDashboard, ShieldCheck, User } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 import { ConvertedImage, Toast } from './types';
 import { convertPngToJpeg, downloadBlob, formatBytes, playSuccessSound, showOSNotification } from './utils';
 import { useAuth } from './contexts/AuthContext';
@@ -452,122 +453,153 @@ export default function App() {
 
         {/* Content Area */}
         <section className="col-span-1 lg:col-span-9 p-8 flex flex-col gap-6 h-full overflow-hidden relative">
-          
-          {activeTab === 'converter' && (
-            <>
-              {/* Drop Zone */}
-              <div 
-                className="shrink-0 h-48 sm:h-64 border-2 border-dashed border-purple-500/30 rounded-3xl bg-purple-500/5 flex flex-col items-center justify-center gap-4 relative group cursor-pointer hover:bg-purple-500/10 transition-colors"
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={handleDrop}
-                onClick={() => document.getElementById('file-upload')?.click()}
+          <AnimatePresence mode="wait">
+            {activeTab === 'converter' && (
+              <motion.div 
+                key="converter"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.2 }}
+                className="flex flex-col gap-6 h-full overflow-hidden"
               >
-                <input 
-                  id="file-upload" 
-                  type="file" 
-                  multiple 
-                  accept="image/png" 
-                  className="hidden" 
-                  onChange={handleFileInput}
-                />
-                <div className="w-16 h-16 rounded-full bg-purple-500/10 flex items-center justify-center group-hover:scale-110 transition-transform">
-                  <Upload className="w-8 h-8 text-purple-400" />
+                {/* Drop Zone */}
+                <div 
+                  className="shrink-0 h-48 sm:h-64 border-2 border-dashed border-purple-500/30 rounded-3xl bg-purple-500/5 flex flex-col items-center justify-center gap-4 relative group cursor-pointer hover:bg-purple-500/10 transition-colors"
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={handleDrop}
+                  onClick={() => document.getElementById('file-upload')?.click()}
+                >
+                  <input 
+                    id="file-upload" 
+                    type="file" 
+                    multiple 
+                    accept="image/png" 
+                    className="hidden" 
+                    onChange={handleFileInput}
+                  />
+                  <div className="w-16 h-16 rounded-full bg-purple-500/10 flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <Upload className="w-8 h-8 text-purple-400" />
+                  </div>
+                  <div className="text-center px-4">
+                    <p className="text-lg font-semibold text-white">Drop your Adobe Stock PNGs here</p>
+                    <p className="text-sm text-purple-300/50 mt-1">PNG files only. Highest quality JPEG output.</p>
+                  </div>
+                  <button className="mt-2 px-6 py-2 bg-purple-600 rounded-full text-xs font-bold uppercase tracking-wider shadow-md hover:bg-purple-500 transition-colors">Browse Files</button>
                 </div>
-                <div className="text-center px-4">
-                  <p className="text-lg font-semibold text-white">Drop your Adobe Stock PNGs here</p>
-                  <p className="text-sm text-purple-300/50 mt-1">PNG files only. Highest quality JPEG output.</p>
-                </div>
-                <button className="mt-2 px-6 py-2 bg-purple-600 rounded-full text-xs font-bold uppercase tracking-wider shadow-md hover:bg-purple-500 transition-colors">Browse Files</button>
-              </div>
 
-              {/* Processing Queue */}
-              <div className="flex-1 flex flex-col overflow-hidden min-h-0">
-                <div className="flex flex-col mb-4 shrink-0 gap-3">
-                  <div className="flex items-center justify-between">
-                    <h2 className="text-sm font-bold text-white uppercase tracking-widest">File Queue <span className="text-purple-500 font-mono text-xs ml-2">({totalCount})</span></h2>
+                {/* Processing Queue */}
+                <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+                  <div className="flex flex-col mb-4 shrink-0 gap-3">
+                    <div className="flex items-center justify-between">
+                      <h2 className="text-sm font-bold text-white uppercase tracking-widest">File Queue <span className="text-purple-500 font-mono text-xs ml-2">({totalCount})</span></h2>
+                      {totalCount > 0 && (
+                         <span className="text-xs font-mono text-purple-400">{progressPercent}% Completed</span>
+                      )}
+                    </div>
                     {totalCount > 0 && (
-                       <span className="text-xs font-mono text-purple-400">{progressPercent}% Completed</span>
+                      <div className="w-full h-1.5 bg-purple-900/50 rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-gradient-to-r from-purple-600 to-indigo-500 transition-all duration-500"
+                          style={{ width: `${progressPercent}%` }}
+                        ></div>
+                      </div>
                     )}
                   </div>
-                  {totalCount > 0 && (
-                    <div className="w-full h-1.5 bg-purple-900/50 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-gradient-to-r from-purple-600 to-indigo-500 transition-all duration-500"
-                        style={{ width: `${progressPercent}%` }}
-                      ></div>
+                  
+                  {doneCount > 0 && (
+                    <div className="mb-4 flex flex-wrap gap-4 text-[11px] font-mono p-3 bg-purple-900/20 border border-purple-500/10 rounded-xl">
+                      <div className="flex flex-col">
+                        <span className="text-purple-300/40">Total Original (Completed)</span>
+                        <span className="text-purple-200 text-sm">{formatBytes(totalOriginalSizeCompleted)}</span>
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-purple-300/40">Total Est. JPEG</span>
+                        <span className="text-purple-200 text-sm">{formatBytes(totalJpegSizeCompleted)}</span>
+                      </div>
+                      <div className="flex flex-col ml-auto text-right">
+                        <span className="text-purple-300/40">Space Saved</span>
+                        <span className="text-green-400 text-sm">-{formatBytes(totalSavedSize)} ({totalSavedPercent}%)</span>
+                      </div>
                     </div>
                   )}
-                </div>
-                
-                {doneCount > 0 && (
-                  <div className="mb-4 flex flex-wrap gap-4 text-[11px] font-mono p-3 bg-purple-900/20 border border-purple-500/10 rounded-xl">
-                    <div className="flex flex-col">
-                      <span className="text-purple-300/40">Total Original (Completed)</span>
-                      <span className="text-purple-200 text-sm">{formatBytes(totalOriginalSizeCompleted)}</span>
-                    </div>
-                    <div className="flex flex-col">
-                      <span className="text-purple-300/40">Total Est. JPEG</span>
-                      <span className="text-purple-200 text-sm">{formatBytes(totalJpegSizeCompleted)}</span>
-                    </div>
-                    <div className="flex flex-col ml-auto text-right">
-                      <span className="text-purple-300/40">Space Saved</span>
-                      <span className="text-green-400 text-sm">-{formatBytes(totalSavedSize)} ({totalSavedPercent}%)</span>
-                    </div>
-                  </div>
-                )}
 
-                <div className="flex-1 space-y-2 overflow-y-auto pr-2 custom-scrollbar">
-                  {images.map(img => (
-                    <div key={img.id} className="flex flex-col sm:flex-row sm:items-center gap-4 p-4 bg-[#140D2B] rounded-2xl border border-purple-500/10 transition-colors hover:border-purple-500/30">
-                      <div className="w-16 h-16 shrink-0 rounded-lg bg-[#0F0A24] overflow-hidden flex items-center justify-center border border-purple-500/20">
-                        <img src={img.previewUrl} alt={img.originalName} className="w-full h-full object-cover" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-purple-100 truncate" title={img.originalName}>{img.originalName}</p>
-                        <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1">
-                          <span className="text-[10px] text-purple-400/60 font-mono">{formatBytes(img.originalSize)} &rarr; {img.jpegSize ? formatBytes(img.jpegSize) : '...'}</span>
-                          {img.status === 'done' && <span className="text-[10px] text-green-400 uppercase font-mono">Ready to download</span>}
-                          {img.status === 'converting' && <span className="text-[10px] text-purple-400 uppercase font-mono">Converting...</span>}
-                          {img.status === 'error' && <span className="text-[10px] text-red-400 uppercase font-mono">Failed</span>}
+                  <div className="flex-1 space-y-2 overflow-y-auto pr-2 custom-scrollbar">
+                    {images.map(img => (
+                      <div key={img.id} className="flex flex-col sm:flex-row sm:items-center gap-4 p-4 bg-[#140D2B] rounded-2xl border border-purple-500/10 transition-colors hover:border-purple-500/30">
+                        <div className="w-16 h-16 shrink-0 rounded-lg bg-[#0F0A24] overflow-hidden flex items-center justify-center border border-purple-500/20">
+                          <img src={img.previewUrl} alt={img.originalName} className="w-full h-full object-cover" />
                         </div>
-                        {img.status === 'converting' && (
-                          <div className="w-full h-1 bg-purple-900/50 rounded-full mt-2 overflow-hidden">
-                            <div className="w-1/2 h-full bg-purple-400 animate-pulse"></div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-purple-100 truncate" title={img.originalName}>{img.originalName}</p>
+                          <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1">
+                            <span className="text-[10px] text-purple-400/60 font-mono">{formatBytes(img.originalSize)} &rarr; {img.jpegSize ? formatBytes(img.jpegSize) : '...'}</span>
+                            {img.status === 'done' && <span className="text-[10px] text-green-400 uppercase font-mono">Ready to download</span>}
+                            {img.status === 'converting' && <span className="text-[10px] text-purple-400 uppercase font-mono">Converting...</span>}
+                            {img.status === 'error' && <span className="text-[10px] text-red-400 uppercase font-mono">Failed</span>}
                           </div>
-                        )}
+                          {img.status === 'converting' && (
+                            <div className="w-full h-1 bg-purple-900/50 rounded-full mt-2 overflow-hidden">
+                              <div className="w-1/2 h-full bg-purple-400 animate-pulse"></div>
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {img.status === 'done' && (
+                             <button 
+                               onClick={(e) => { e.stopPropagation(); downloadBlob(img.blob, img.originalName.replace(/\.[^/.]+$/, "") + ".jpg"); }}
+                               className="p-2 text-purple-400 hover:text-white bg-purple-900/30 hover:bg-purple-600 rounded-lg transition-colors"
+                               title="Download"
+                             >
+                               <Download className="w-5 h-5" />
+                             </button>
+                          )}
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); removeImage(img.id); }}
+                            className="p-2 text-purple-400 hover:text-red-400 bg-purple-900/30 hover:bg-red-500/10 rounded-lg transition-colors"
+                            title="Remove"
+                          >
+                            <Trash2 className="w-5 h-5" />
+                          </button>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        {img.status === 'done' && (
-                           <button 
-                             onClick={(e) => { e.stopPropagation(); downloadBlob(img.blob, img.originalName.replace(/\.[^/.]+$/, "") + ".jpg"); }}
-                             className="p-2 text-purple-400 hover:text-white bg-purple-900/30 hover:bg-purple-600 rounded-lg transition-colors"
-                             title="Download"
-                           >
-                             <Download className="w-5 h-5" />
-                           </button>
-                        )}
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); removeImage(img.id); }}
-                          className="p-2 text-purple-400 hover:text-red-400 bg-purple-900/30 hover:bg-red-500/10 rounded-lg transition-colors"
-                          title="Remove"
-                        >
-                          <Trash2 className="w-5 h-5" />
-                        </button>
+                    ))}
+                    {images.length === 0 && (
+                      <div className="h-full flex items-center justify-center text-purple-300/40 text-sm">
+                        No files in queue
                       </div>
-                    </div>
-                  ))}
-                  {images.length === 0 && (
-                    <div className="h-full flex items-center justify-center text-purple-300/40 text-sm">
-                      No files in queue
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
-              </div>
-            </>
-          )}
+              </motion.div>
+            )}
 
-          {activeTab === 'dashboard' && <UserDashboard />}
-          {activeTab === 'admin' && profile?.role === 'admin' && <AdminPanel />}
+            {activeTab === 'dashboard' && (
+              <motion.div
+                key="dashboard"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.2 }}
+                className="h-full overflow-y-auto custom-scrollbar"
+              >
+                <UserDashboard />
+              </motion.div>
+            )}
+            
+            {activeTab === 'admin' && profile?.role === 'admin' && (
+              <motion.div
+                key="admin"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.2 }}
+                className="h-full overflow-y-auto custom-scrollbar"
+              >
+                <AdminPanel />
+              </motion.div>
+            )}
+          </AnimatePresence>
         </section>
       </main>
 

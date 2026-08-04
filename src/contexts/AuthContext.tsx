@@ -32,33 +32,45 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<FirebaseUser | null>(null);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [profile, setProfile] = useState<UserProfile | null>(() => {
+    try {
+      const cached = localStorage.getItem('stockconv_profile');
+      return cached ? JSON.parse(cached) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [loading, setLoading] = useState(() => {
+    return !localStorage.getItem('stockconv_profile');
+  });
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
-      setUser(user);
+    const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
+      setUser(firebaseUser);
       
-      if (user) {
+      if (firebaseUser) {
         // Subscribe to user profile changes
-        const userDocRef = doc(db, 'users', user.uid);
+        const userDocRef = doc(db, 'users', firebaseUser.uid);
         const unsubscribeProfile = onSnapshot(userDocRef, async (snapshot) => {
           if (snapshot.exists()) {
-            setProfile(snapshot.data() as UserProfile);
+            const data = snapshot.data() as UserProfile;
+            setProfile(data);
+            localStorage.setItem('stockconv_profile', JSON.stringify(data));
           } else {
             // Create profile if it doesn't exist
             const newProfile: UserProfile = {
-              uid: user.uid,
-              email: user.email || '',
-              credits: user.email === 'titaniumfact97@gmail.com' ? 999999 : 10,
-              isUnlimited: user.email === 'titaniumfact97@gmail.com',
-              role: user.email === 'titaniumfact97@gmail.com' ? 'admin' : 'user',
+              uid: firebaseUser.uid,
+              email: firebaseUser.email || '',
+              credits: firebaseUser.email === 'titaniumfact97@gmail.com' ? 999999 : 10,
+              isUnlimited: firebaseUser.email === 'titaniumfact97@gmail.com',
+              role: firebaseUser.email === 'titaniumfact97@gmail.com' ? 'admin' : 'user',
               createdAt: serverTimestamp(),
             };
             try {
               await setDoc(userDocRef, newProfile);
               setProfile(newProfile);
+              localStorage.setItem('stockconv_profile', JSON.stringify(newProfile));
             } catch (err: any) {
               console.error("Error creating profile:", err);
               setError("Failed to initialize user profile.");
@@ -74,6 +86,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return () => unsubscribeProfile();
       } else {
         setProfile(null);
+        localStorage.removeItem('stockconv_profile');
         setLoading(false);
       }
     });
