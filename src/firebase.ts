@@ -12,8 +12,11 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID || localConfig.appId
 };
 
+const databaseId = import.meta.env.VITE_FIREBASE_DATABASE_ID || localConfig.firestoreDatabaseId || '(default)';
+
 const app = initializeApp(firebaseConfig);
 export const db = initializeFirestore(app, {
   experimentalForceLongPolling: true
-});
+}, databaseId);
 export const auth = getAuth(app);
+
