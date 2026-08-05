@@ -4,9 +4,11 @@ import {
   signInWithPopup, 
   GoogleAuthProvider, 
   signOut,
-  User as FirebaseUser
+  User as FirebaseUser,
+  setPersistence,
+  browserLocalPersistence
 } from 'firebase/auth';
-import { doc, getDoc, setDoc, onSnapshot, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, onSnapshot, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 
 interface UserProfile {
@@ -59,6 +61,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const unsubscribeProfile = onSnapshot(userDocRef, async (snapshot) => {
           if (snapshot.exists()) {
             const data = snapshot.data() as UserProfile;
+            
+            // Automatically unblock the admin if they were somehow blocked
+            if (firebaseUser.email?.toLowerCase() === 'titaniumfact97@gmail.com' && data.isBlocked) {
+              data.isBlocked = false;
+              updateDoc(userDocRef, { isBlocked: false }).catch(console.error);
+            }
+            
             setProfile(data);
             localStorage.setItem('stockconv_profile', JSON.stringify(data));
           } else {
@@ -102,6 +111,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setError(null);
     const provider = new GoogleAuthProvider();
     try {
+      await setPersistence(auth, browserLocalPersistence);
       await signInWithPopup(auth, provider);
     } catch (err: any) {
       if (err.code === 'auth/popup-closed-by-user') {

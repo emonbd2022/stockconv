@@ -11,6 +11,9 @@ export default defineConfig(() => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
+        workbox: {
+          globPatterns: ['**/*.{js,css,html,ico,png,svg,json}'],
+        },
         manifest: {
           name: 'PNG to JPEG Converter',
           short_name: 'PNG2JPG',
