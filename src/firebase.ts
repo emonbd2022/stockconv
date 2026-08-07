@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { initializeApp } from 'firebase/app';
-import { getAuth, setPersistence, browserLocalPersistence } from 'firebase/auth';
+import { getAuth } from 'firebase/auth';
 import { initializeFirestore } from 'firebase/firestore';
 import localConfig from '../firebase-applet-config.json';
 
@@ -22,5 +22,4 @@ export const db = initializeFirestore(app, {
   experimentalForceLongPolling: true
 }, databaseId);
 export const auth = getAuth(app);
-setPersistence(auth, browserLocalPersistence).catch(console.error);
 
