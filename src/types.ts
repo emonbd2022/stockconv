@@ -6,7 +6,7 @@ export interface ConvertedImage {
   file: File;
   blob?: Blob;
   status: 'pending' | 'converting' | 'done' | 'error';
-  jpegSize?: number;
+  convertedSize?: number;
 }
 
 export interface Toast {

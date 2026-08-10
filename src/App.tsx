@@ -3,7 +3,7 @@ import JSZip from 'jszip';
 import { Upload, Download, Trash2, DownloadCloud, CheckCircle, FileImage, XCircle, Info, PlayCircle, StopCircle, Hourglass, Activity, LayoutDashboard, ShieldCheck, User } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { ConvertedImage, Toast } from './types';
-import { convertPngToJpeg, downloadBlob, formatBytes, playSuccessSound, showOSNotification } from './utils';
+import { convertImage, downloadBlob, formatBytes, playSuccessSound, showOSNotification } from './utils';
 import { useAuth } from './contexts/AuthContext';
 import { Login } from './components/Login';
 import { UserDashboard } from './components/UserDashboard';
@@ -100,7 +100,7 @@ export default function App() {
   const handleFiles = useCallback((files: FileList | null) => {
     if (!files) return;
 
-    const fileArray = Array.from(files).filter(file => file.type === 'image/png');
+    const fileArray = Array.from(files).filter(file => file.type === 'image/png' || file.type === 'image/jpeg' || file.type === 'image/jpg');
     if (fileArray.length === 0) return;
 
     const newImages: ConvertedImage[] = fileArray.map(file => ({
@@ -158,7 +158,7 @@ export default function App() {
       
       const startTime = performance.now();
       try {
-        const jpegBlob = await convertPngToJpeg(imgObj.file);
+        const convertedBlob = await convertImage(imgObj.file);
         
         // Deduct credit & track processed
         if (profile) {
@@ -192,8 +192,8 @@ export default function App() {
             const updated = { 
               ...img, 
               status: 'done' as const, 
-              blob: jpegBlob, 
-              jpegSize: jpegBlob.size 
+              blob: convertedBlob, 
+              convertedSize: convertedBlob.size 
             };
             allDone.push(updated);
             return updated;
@@ -203,7 +203,7 @@ export default function App() {
 
         if (autoExportOneByOneRef.current) {
           const newName = imgObj.originalName.replace(/\.[^/.]+$/, "") + ".jpg";
-          downloadBlob(jpegBlob, newName);
+          downloadBlob(convertedBlob, newName);
         }
       } catch (error) {
         console.error("Failed to convert image:", error);
@@ -237,7 +237,7 @@ export default function App() {
       const zip = new JSZip();
       doneImages.forEach(img => {
         if (img.blob) {
-          const newName = img.originalName.replace(/\.[^/.]+$/, "") + ".jpg";
+          const newName = img.originalName.replace(/\.[^/.]+$/, "") + (img.file.type === "image/png" ? ".jpg" : ".png");
           zip.file(newName, img.blob);
         }
       });
@@ -327,8 +327,8 @@ export default function App() {
 
   const completedImages = images.filter(img => img.status === 'done');
   const totalOriginalSizeCompleted = completedImages.reduce((acc, img) => acc + img.originalSize, 0);
-  const totalJpegSizeCompleted = completedImages.reduce((acc, img) => acc + (img.jpegSize || 0), 0);
-  const totalSavedSize = Math.max(0, totalOriginalSizeCompleted - totalJpegSizeCompleted);
+  const totalConvertedSizeCompleted = completedImages.reduce((acc, img) => acc + (img.convertedSize || 0), 0);
+  const totalSavedSize = Math.max(0, totalOriginalSizeCompleted - totalConvertedSizeCompleted);
   const totalSavedPercent = totalOriginalSizeCompleted > 0 
     ? Math.round((totalSavedSize / totalOriginalSizeCompleted) * 100) 
     : 0;
@@ -353,7 +353,7 @@ export default function App() {
                 </span>
               )}
             </h1>
-            <p className="text-[10px] uppercase tracking-[0.2em] text-purple-300/60">Pro Lossless PNG to JPEG</p>
+            <p className="text-[10px] uppercase tracking-[0.2em] text-purple-300/60">Pro Lossless Image Converter</p>
           </div>
         </div>
         
@@ -555,8 +555,8 @@ export default function App() {
                         <span className="text-purple-200 text-sm">{formatBytes(totalOriginalSizeCompleted)}</span>
                       </div>
                       <div className="flex flex-col">
-                        <span className="text-purple-300/40">Total Est. JPEG</span>
-                        <span className="text-purple-200 text-sm">{formatBytes(totalJpegSizeCompleted)}</span>
+                        <span className="text-purple-300/40">Total Converted Size</span>
+                        <span className="text-purple-200 text-sm">{formatBytes(totalConvertedSizeCompleted)}</span>
                       </div>
                       <div className="flex flex-col ml-auto text-right">
                         <span className="text-purple-300/40">Space Saved</span>
@@ -574,7 +574,7 @@ export default function App() {
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-purple-100 truncate" title={img.originalName}>{img.originalName}</p>
                           <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1">
-                            <span className="text-[10px] text-purple-400/60 font-mono">{formatBytes(img.originalSize)} &rarr; {img.jpegSize ? formatBytes(img.jpegSize) : '...'}</span>
+                            <span className="text-[10px] text-purple-400/60 font-mono">{formatBytes(img.originalSize)} &rarr; {img.convertedSize ? formatBytes(img.convertedSize) : '...'}</span>
                             {img.status === 'done' && <span className="text-[10px] text-green-400 uppercase font-mono">Ready to download</span>}
                             {img.status === 'converting' && <span className="text-[10px] text-purple-400 uppercase font-mono">Converting...</span>}
                             {img.status === 'error' && <span className="text-[10px] text-red-400 uppercase font-mono">Failed</span>}
