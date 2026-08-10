@@ -53,6 +53,23 @@ export default function App() {
   const [isConverting, setIsConverting] = useState(false);
   const stopConversionRef = useRef(false);
   const recentTimesRef = useRef<{ timestamp: number, duration: number }[]>([]);
+    const [autoExportOneByOne, setAutoExportOneByOne] = useState<boolean>(() => {
+    const saved = localStorage.getItem('autoExportOneByOne');
+    return saved === 'true';
+  });
+  useEffect(() => {
+    localStorage.setItem('autoExportOneByOne', autoExportOneByOne.toString());
+  }, [autoExportOneByOne]);
+
+  const autoExportOneByOneRef = useRef(autoExportOneByOne);
+  useEffect(() => {
+    autoExportOneByOneRef.current = autoExportOneByOne;
+  }, [autoExportOneByOne]);
+
+  const handleAutoExportOneByOneToggle = (checked: boolean) => {
+    setAutoExportOneByOne(checked);
+  };
+
   const [autoExport, setAutoExport] = useState<boolean>(() => {
     const saved = localStorage.getItem('autoExport');
     return saved === 'true';
@@ -181,6 +198,11 @@ export default function App() {
           }
           return img;
         }));
+
+        if (autoExportOneByOneRef.current) {
+          const newName = imgObj.originalName.replace(/\.[^/.]+$/, "") + ".jpg";
+          downloadBlob(jpegBlob, newName);
+        }
       } catch (error) {
         console.error("Failed to convert image:", error);
         setImages(prev => prev.map(img => 
@@ -320,22 +342,61 @@ export default function App() {
             <FileImage className="w-6 h-6 text-white" />
           </div>
           <div>
-            <h1 className="text-xl font-bold tracking-tight text-white">STOCK<span className="text-purple-400">CONV</span></h1>
+            <h1 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
+              STOCK<span className="text-purple-400">CONV</span>
+              {isOfflineReady && (
+                <span className="px-1.5 py-0.5 rounded bg-green-900/40 border border-green-500/30 text-[9px] font-mono text-green-400 flex items-center gap-1">
+                  <div className="w-1 h-1 rounded-full bg-green-500 animate-pulse"></div>
+                  OFFLINE
+                </span>
+              )}
+            </h1>
             <p className="text-[10px] uppercase tracking-[0.2em] text-purple-300/60">Pro Lossless PNG to JPEG</p>
           </div>
         </div>
         
-        <div className="flex gap-2">
-          {isOfflineReady && (
-            <div className="px-3 py-1 rounded bg-green-900/40 border border-green-500/30 text-[11px] font-mono text-green-400 flex items-center gap-1">
-              <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div>
-              OFFLINE READY
-            </div>
-          )}
-          <div className="px-3 py-1 rounded bg-purple-900/40 border border-purple-500/30 text-[11px] font-mono">
-             {profile?.role === 'admin' ? 'ADMIN ACCESS' : 'CLIENT-SIDE CONVERSION'}
+        
+        <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 sm:gap-4 justify-end">
+          <div className="flex items-center gap-2 sm:gap-3 pr-2 sm:pr-4 sm:border-r border-purple-500/20">
+             <label className="flex items-center gap-1.5 sm:gap-2 text-[10px] sm:text-xs font-bold text-purple-300 uppercase cursor-pointer" title="Automatically create ZIP when finished">
+                <span className="hidden md:inline">Auto Batch</span>
+                <span className="md:hidden">Batch</span>
+                <div className="relative flex items-center">
+                  <input type="checkbox" className="sr-only" checked={autoExport} onChange={(e) => handleAutoExportToggle(e.target.checked)} />
+                  <div className={`w-6 sm:w-8 h-3 sm:h-4 rounded-full transition-colors ${autoExport ? 'bg-purple-600' : 'bg-purple-900/50'}`}></div>
+                  <div className={`absolute left-0.5 top-0.5 w-2 sm:w-3 h-2 sm:h-3 bg-white rounded-full transition-transform ${autoExport ? 'translate-x-3 sm:translate-x-4' : ''}`}></div>
+                </div>
+             </label>
+             <label className="flex items-center gap-1.5 sm:gap-2 text-[10px] sm:text-xs font-bold text-purple-300 uppercase cursor-pointer" title="Automatically download each image instantly">
+                <span className="hidden md:inline">Auto One-by-One</span>
+                <span className="md:hidden">1-by-1</span>
+                <div className="relative flex items-center">
+                  <input type="checkbox" className="sr-only" checked={autoExportOneByOne} onChange={(e) => handleAutoExportOneByOneToggle(e.target.checked)} />
+                  <div className={`w-6 sm:w-8 h-3 sm:h-4 rounded-full transition-colors ${autoExportOneByOne ? 'bg-purple-600' : 'bg-purple-900/50'}`}></div>
+                  <div className={`absolute left-0.5 top-0.5 w-2 sm:w-3 h-2 sm:h-3 bg-white rounded-full transition-transform ${autoExportOneByOne ? 'translate-x-3 sm:translate-x-4' : ''}`}></div>
+                </div>
+             </label>
           </div>
+          
+          <button 
+            onClick={toggleConversion}
+            disabled={images.filter(img => img.status === 'pending').length === 0 && !isConverting}
+            className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg text-white font-bold text-[10px] sm:text-xs flex items-center gap-1.5 sm:gap-2 transition-colors disabled:opacity-50 shadow-lg ${isConverting ? 'bg-red-600 shadow-red-900/50 hover:bg-red-500' : 'bg-green-600 shadow-green-900/50 hover:bg-green-500'}`}
+          >
+            {isConverting ? <StopCircle className="w-3 h-3 sm:w-4 sm:h-4" /> : <PlayCircle className="w-3 h-3 sm:w-4 sm:h-4" />}
+            <span className="hidden sm:inline">{isConverting ? 'STOP' : 'START'}</span>
+          </button>
+          
+          <button 
+            onClick={() => handleExportBatch()}
+            disabled={isExportingBatch || images.filter(img => img.status === 'done').length === 0}
+            className="px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg bg-purple-600 text-white font-bold text-[10px] sm:text-xs flex items-center gap-1.5 sm:gap-2 hover:bg-purple-500 transition-colors disabled:opacity-50 shadow-lg shadow-purple-900/50"
+          >
+            <DownloadCloud className="w-3 h-3 sm:w-4 sm:h-4" />
+            <span className="hidden sm:inline">{isExportingBatch ? 'ZIPPING...' : 'ZIP EXPORT'}</span>
+          </button>
         </div>
+
       </header>
 
       <main className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-0 overflow-hidden min-h-0">
@@ -374,19 +435,7 @@ export default function App() {
             <h2 className="text-xs font-bold text-purple-400 uppercase tracking-widest mb-4">Configuration</h2>
             
             <div className="space-y-4">
-              <label className="flex items-center justify-between p-3 rounded-xl bg-purple-900/20 border border-purple-500/10 cursor-pointer hover:border-purple-500/30 transition-colors">
-                <span className="text-sm font-medium">Auto-Export (Batch Only)</span>
-                <div className="relative">
-                  <input 
-                    type="checkbox" 
-                    className="sr-only" 
-                    checked={autoExport}
-                    onChange={(e) => handleAutoExportToggle(e.target.checked)}
-                  />
-                  <div className={`w-10 h-5 rounded-full transition-colors ${autoExport ? 'bg-purple-600' : 'bg-purple-900/50'}`}></div>
-                  <div className={`absolute left-1 top-1 w-3 h-3 bg-white rounded-full transition-transform ${autoExport ? 'translate-x-5' : ''}`}></div>
-                </div>
-              </label>
+              
 
               <div className="p-4 rounded-xl bg-purple-500/5 border border-purple-500/20">
                 <h3 className="text-xs font-semibold text-purple-200 mb-2">Quality & Compression</h3>
@@ -438,40 +487,7 @@ export default function App() {
             </div>
           </div>
 
-          <div className="mt-auto pt-6">
-            <h2 className="text-xs font-bold text-purple-400 uppercase tracking-widest mb-4">Export Actions</h2>
-            <div className="grid gap-2">
-              <button 
-                onClick={toggleConversion}
-                disabled={pendingCount === 0 && !isConverting}
-                className={`w-full flex items-center justify-center space-x-2 py-3 rounded-lg text-white font-bold text-sm shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
-                  isConverting 
-                    ? 'bg-red-600 shadow-red-900/50 hover:bg-red-500' 
-                    : 'bg-green-600 shadow-green-900/50 hover:bg-green-500'
-                }`}
-              >
-                {isConverting ? <StopCircle className="w-4 h-4" /> : <PlayCircle className="w-4 h-4" />}
-                <span>{isConverting ? 'STOP CONVERSION' : 'START CONVERSION'}</span>
-              </button>
-
-              <button 
-                onClick={() => handleExportBatch()}
-                disabled={isExportingBatch || doneCount === 0}
-                className="w-full flex items-center justify-center space-x-2 py-3 rounded-lg bg-purple-600 text-white font-bold text-sm shadow-lg shadow-purple-900/50 hover:bg-purple-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <DownloadCloud className="w-4 h-4" />
-                <span>{isExportingBatch ? 'ZIPPING...' : 'BATCH (.ZIP)'}</span>
-              </button>
-              
-              <button 
-                onClick={clearAll}
-                disabled={images.length === 0}
-                className="w-full py-3 rounded-lg bg-transparent border border-purple-500/40 text-purple-300 font-bold text-sm hover:bg-purple-500/10 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                CLEAR ALL
-              </button>
-            </div>
-          </div>
+          
         </aside>
 
         {/* Content Area */}
