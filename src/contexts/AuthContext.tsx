@@ -4,7 +4,8 @@ import {
   signInWithPopup, 
   GoogleAuthProvider, 
   signOut,
-  User as FirebaseUser
+  User as FirebaseUser,
+  browserPopupRedirectResolver
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, updateDoc, onSnapshot, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '../firebase';
@@ -109,7 +110,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setError(null);
     const provider = new GoogleAuthProvider();
     try {
-      await signInWithPopup(auth, provider);
+      await signInWithPopup(auth, provider, browserPopupRedirectResolver);
     } catch (err: any) {
       if (err.code === 'auth/popup-closed-by-user') {
         // Just ignore or set a mild message
