@@ -13,6 +13,9 @@ export default defineConfig(() => {
         registerType: 'autoUpdate',
         workbox: {
           globPatterns: ['**/*.{js,css,html,ico,png,svg,json}'],
+          clientsClaim: true,
+          skipWaiting: true,
+          cleanupOutdatedCaches: true,
         },
         manifest: {
           name: 'PNG to JPEG Converter',
