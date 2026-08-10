@@ -68,6 +68,7 @@ export default function App() {
 
   const handleAutoExportOneByOneToggle = (checked: boolean) => {
     setAutoExportOneByOne(checked);
+    if (checked) setAutoExport(false);
   };
 
   const [autoExport, setAutoExport] = useState<boolean>(() => {
@@ -90,6 +91,7 @@ export default function App() {
 
   const handleAutoExportToggle = (checked: boolean) => {
     setAutoExport(checked);
+    if (checked) setAutoExportOneByOne(false);
     if (checked && 'Notification' in window && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
       Notification.requestPermission();
     }

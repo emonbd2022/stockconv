@@ -6,7 +6,15 @@ import { registerSW } from 'virtual:pwa-register';
 import { AuthProvider } from './contexts/AuthContext';
 
 // Register service worker for offline support
-registerSW({ immediate: true });
+const updateSW = registerSW({ 
+  onNeedRefresh() {
+    updateSW(true);
+  },
+  onOfflineReady() {
+    console.log('App is ready to work offline');
+  },
+  immediate: true 
+});
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
