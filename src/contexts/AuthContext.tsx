@@ -20,6 +20,7 @@ interface UserProfile {
   isBlocked?: boolean;
   nickname?: string;
   processedCount?: number;
+  creatorName?: string;
 }
 
 interface AuthContextType {

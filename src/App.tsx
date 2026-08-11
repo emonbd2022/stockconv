@@ -15,6 +15,26 @@ export default function App() {
   const { user, profile, loading, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<'converter' | 'dashboard' | 'admin'>('converter');
   const [images, setImages] = useState<ConvertedImage[]>([]);
+  const [creatorName, setCreatorName] = useState(() => profile?.creatorName || user?.displayName || '');
+
+  useEffect(() => {
+    if (!creatorName && (profile?.creatorName || user?.displayName)) {
+      setCreatorName(profile?.creatorName || user?.displayName || '');
+    }
+  }, [profile?.creatorName, user?.displayName]);
+
+  useEffect(() => {
+    if (!user || !profile) return;
+    const timeoutId = setTimeout(() => {
+      if (creatorName !== profile.creatorName) {
+        import('firebase/firestore').then(({ doc, updateDoc }) => {
+          const userDocRef = doc(db, 'users', profile.uid);
+          updateDoc(userDocRef, { creatorName });
+        }).catch(console.error);
+      }
+    }, 1000);
+    return () => clearTimeout(timeoutId);
+  }, [creatorName, user, profile]);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [sessionStats, setSessionStats] = useState(() => {
     const saved = localStorage.getItem('sessionStats');
@@ -158,7 +178,8 @@ export default function App() {
       
       const startTime = performance.now();
       try {
-        const convertedBlob = await convertImage(imgObj.file);
+        const finalCreatorName = creatorName.trim() || user?.displayName || 'Unknown Creator';
+        const convertedBlob = await convertImage(imgObj.file, finalCreatorName);
         
         // Deduct credit & track processed
         if (profile) {
@@ -243,7 +264,10 @@ export default function App() {
       });
 
       const zipBlob = await zip.generateAsync({ type: 'blob' });
-      downloadBlob(zipBlob, 'converted_images.zip');
+      const finalCreatorName = creatorName.trim() || user?.displayName || 'UnknownCreator';
+      const safeCreatorName = finalCreatorName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+      const zipFileName = `${doneImages.length}_converted_images_for_${safeCreatorName}.zip`;
+      downloadBlob(zipBlob, zipFileName);
       
       addToast(`Successfully exported ${doneImages.length} images!`, 'success');
       playSuccessSound();
@@ -437,6 +461,17 @@ export default function App() {
             <h2 className="text-xs font-bold text-purple-400 uppercase tracking-widest mb-4">Configuration</h2>
             
             <div className="space-y-4">
+              
+              <div className="flex flex-col gap-2">
+                <label className="text-xs font-semibold text-purple-200 uppercase tracking-widest">Creator</label>
+                <input 
+                  type="text" 
+                  value={creatorName}
+                  onChange={(e) => setCreatorName(e.target.value)}
+                  placeholder="Your adobe contributor display name"
+                  className="w-full bg-[#0F0A24] border border-purple-500/30 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-purple-500 placeholder-purple-300/30 transition-colors"
+                />
+              </div>
               
 
               <div className="p-4 rounded-xl bg-purple-500/5 border border-purple-500/20">

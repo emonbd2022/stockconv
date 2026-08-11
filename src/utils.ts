@@ -21,7 +21,7 @@ export const initMagick = async () => {
   return initializing;
 };
 
-export const convertImage = async (file: File): Promise<Blob> => {
+export const convertImage = async (file: File, creatorName?: string): Promise<Blob> => {
   await initMagick();
   
   const buffer = new Uint8Array(await file.arrayBuffer());
