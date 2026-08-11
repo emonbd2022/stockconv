@@ -40,14 +40,43 @@ export const convertImage = async (file: File, creatorName?: string): Promise<Bl
           if (val) attributes[attr] = val;
         }
         
+        const escapeXml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+        
+        // Update Creator if provided
+        if (creatorName) {
+          attributes['Author'] = creatorName;
+          attributes['Creator'] = creatorName;
+          img.setAttribute('Author', creatorName);
+        }
+        
         // Check if XMP profile exists
         let hasXmp = img.hasProfile('xmp');
+        
+        if (hasXmp && creatorName) {
+            // Patch existing XMP
+            const xmpProfile = img.getProfile('xmp');
+            if (xmpProfile) {
+                let xmpStr = new TextDecoder().decode(xmpProfile.data);
+                const creatorRegex = /(<dc:creator>\s*<rdf:Seq>\s*<rdf:li>)(.*?)(<\/rdf:li>\s*<\/rdf:Seq>\s*<\/dc:creator>)/s;
+                const newCreator = escapeXml(creatorName);
+                
+                if (creatorRegex.test(xmpStr)) {
+                    xmpStr = xmpStr.replace(creatorRegex, `$1${newCreator}$3`);
+                } else {
+                    const descRegex = /(<rdf:Description[^>]*>)/s;
+                    if (descRegex.test(xmpStr)) {
+                        xmpStr = xmpStr.replace(descRegex, `$1\n      <dc:creator><rdf:Seq><rdf:li>${newCreator}</rdf:li></rdf:Seq></dc:creator>`);
+                    }
+                }
+                const newXmpData = new TextEncoder().encode(xmpStr);
+                img.setProfile('xmp', newXmpData);
+            }
+        }
         
         // If converting PNG -> JPEG, JPEG doesn't support raw text attributes well.
         // We inject them into an XMP packet if they exist and XMP doesn't.
         if (targetFormat === MagickFormat.Jpeg && !hasXmp) {
           let rdf = '';
-          const escapeXml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
           
           if (attributes['Author'] || attributes['Creator']) {
             const creator = escapeXml(attributes['Author'] || attributes['Creator'] || '');
@@ -122,8 +151,6 @@ export const convertImage = async (file: File, creatorName?: string): Promise<Bl
     }
   });
 };
-
-
 
 export const downloadBlob = (blob: Blob, filename: string) => {
   const url = URL.createObjectURL(blob);
