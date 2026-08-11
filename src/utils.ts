@@ -29,7 +29,8 @@ export const convertImage = async (file: File, creatorName?: string): Promise<Bl
   return new Promise((resolve, reject) => {
     try {
       ImageMagick.read(buffer, (img) => {
-        // Handle input format -> output format
+        try {
+          // Handle input format -> output format
         const isPng = file.type === 'image/png' || img.format === MagickFormat.Png;
         const targetFormat = isPng ? MagickFormat.Jpeg : MagickFormat.Png;
         
@@ -69,6 +70,7 @@ export const convertImage = async (file: File, creatorName?: string): Promise<Bl
                     }
                 }
                 const newXmpData = new TextEncoder().encode(xmpStr);
+                img.removeProfile('xmp');
                 img.setProfile('xmp', newXmpData);
             }
         }
@@ -145,6 +147,9 @@ export const convertImage = async (file: File, creatorName?: string): Promise<Bl
         img.write(data => {
           resolve(new Blob([data], { type: targetFormat === MagickFormat.Jpeg ? 'image/jpeg' : 'image/png' }));
         });
+        } catch(innerErr) {
+          reject(innerErr);
+        }
       });
     } catch (e) {
       reject(e);
