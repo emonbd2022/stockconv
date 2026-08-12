@@ -138,10 +138,8 @@ export const convertImage = async (file: File, creatorName?: string): Promise<Bl
             
             if (!hasXmp) {
                 // If no XMP, also migrate other text chunks over so they aren't lost
-                if (attributes['Author'] || attributes['Creator']) {
-                    const creator = escapeXml(attributes['Author'] || attributes['Creator'] || '');
-                    rdfToInject += `\n      <dc:creator><rdf:Seq><rdf:li>${creator}</rdf:li></rdf:Seq></dc:creator>`;
-                }
+                // If inject is disabled (creatorName is empty), the user explicitly wants existing Author/Creator tags REMOVED.
+                // So we do NOT migrate them over to the new RDF payload here.
                 if (attributes['Description']) {
                     rdfToInject += `\n      <dc:description><rdf:Alt><rdf:li xml:lang="x-default">${escapeXml(attributes['Description'])}</rdf:li></rdf:Alt></dc:description>`;
                 }
@@ -160,20 +158,42 @@ export const convertImage = async (file: File, creatorName?: string): Promise<Bl
             }
         }
         
-        // Apply Creator Patch
+        // Handle Author/Creator modifications
+        // First, strip out existing Creator tags if present in XMP
+        if (hasXmp && xmpStr) {
+            const creatorRegex = /<dc:creator>\s*<rdf:Seq>\s*<rdf:li>.*?<\/rdf:li>\s*<\/rdf:Seq>\s*<\/dc:creator>/s;
+            if (creatorRegex.test(xmpStr)) {
+                xmpStr = xmpStr.replace(creatorRegex, '');
+                modifiedXmp = true;
+            }
+            
+            // Also strip pdf:Author or other forms if present
+            const pdfAuthorRegex = /<pdf:Author>.*?<\/pdf:Author>/s;
+            if (pdfAuthorRegex.test(xmpStr)) {
+                xmpStr = xmpStr.replace(pdfAuthorRegex, '');
+                modifiedXmp = true;
+            }
+            
+            const tiffArtistRegex = /<tiff:Artist>.*?<\/tiff:Artist>/s;
+            if (tiffArtistRegex.test(xmpStr)) {
+                xmpStr = xmpStr.replace(tiffArtistRegex, '');
+                modifiedXmp = true;
+            }
+        }
+        
+        // Remove EXIF artist/author tags if they existed
+        img.removeAttribute('exif:Artist');
+        img.removeAttribute('exif:XPAuthor');
+        
+        // Apply new Creator (Author) if enabled
         if (creatorName) {
             const newCreator = escapeXml(creatorName);
-            if (hasXmp && xmpStr) {
-                const creatorRegex = /(<dc:creator>\s*<rdf:Seq>\s*<rdf:li>)(.*?)(<\/rdf:li>\s*<\/rdf:Seq>\s*<\/dc:creator>)/s;
-                if (creatorRegex.test(xmpStr)) {
-                    xmpStr = xmpStr.replace(creatorRegex, `$1${newCreator}$3`);
-                    modifiedXmp = true;
-                } else {
-                    rdfToInject += `\n      <dc:creator><rdf:Seq><rdf:li>${newCreator}</rdf:li></rdf:Seq></dc:creator>`;
-                }
-            } else if (!hasXmp && !rdfToInject.includes('<dc:creator>')) {
-                rdfToInject += `\n      <dc:creator><rdf:Seq><rdf:li>${newCreator}</rdf:li></rdf:Seq></dc:creator>`;
-            }
+            // Inject as pdf:Author and tiff:Artist which usually map to Author/Artist instead of Creator
+            rdfToInject += `\n      <pdf:Author>${newCreator}</pdf:Author>\n      <tiff:Artist>${newCreator}</tiff:Artist>`;
+            
+            // Set standard EXIF tags to ensure ExifTool shows "Author"
+            img.setAttribute('exif:Artist', creatorName);
+            img.setAttribute('exif:XPAuthor', creatorName);
         }
         
         // Inject RDF if needed
