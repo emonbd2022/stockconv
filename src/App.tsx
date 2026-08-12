@@ -16,6 +16,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'converter' | 'dashboard' | 'admin'>('converter');
   const [images, setImages] = useState<ConvertedImage[]>([]);
   const [creatorName, setCreatorName] = useState(() => profile?.creatorName || user?.displayName || '');
+  const [enableCreator, setEnableCreator] = useState(false);
 
   useEffect(() => {
     if (!creatorName && (profile?.creatorName || user?.displayName)) {
@@ -178,7 +179,7 @@ export default function App() {
       
       const startTime = performance.now();
       try {
-        const finalCreatorName = creatorName.trim() || user?.displayName || 'Unknown Creator';
+        const finalCreatorName = enableCreator ? (creatorName.trim() || user?.displayName || 'Unknown Creator') : '';
         const convertedBlob = await convertImage(imgObj.file, finalCreatorName);
         
         // Deduct credit & track processed
@@ -264,7 +265,7 @@ export default function App() {
       });
 
       const zipBlob = await zip.generateAsync({ type: 'blob' });
-      const finalCreatorName = creatorName.trim() || user?.displayName || 'UnknownCreator';
+      const finalCreatorName = enableCreator ? (creatorName.trim() || user?.displayName || 'UnknownCreator') : 'Export';
       const safeCreatorName = finalCreatorName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
       const zipFileName = `${doneImages.length}_converted_images_for_${safeCreatorName}.zip`;
       downloadBlob(zipBlob, zipFileName);
@@ -462,15 +463,37 @@ export default function App() {
             
             <div className="space-y-4">
               
-              <div className="flex flex-col gap-2">
-                <label className="text-xs font-semibold text-purple-200 uppercase tracking-widest">Creator</label>
-                <input 
-                  type="text" 
-                  value={creatorName}
-                  onChange={(e) => setCreatorName(e.target.value)}
-                  placeholder="Your adobe contributor display name"
-                  className="w-full bg-[#0F0A24] border border-purple-500/30 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-purple-500 placeholder-purple-300/30 transition-colors"
-                />
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-purple-200 uppercase tracking-widest cursor-pointer" onClick={() => setEnableCreator(!enableCreator)}>Inject Creator Name</label>
+                  <button
+                    onClick={() => setEnableCreator(!enableCreator)}
+                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${enableCreator ? 'bg-purple-500' : 'bg-purple-900/40'}`}
+                  >
+                    <span
+                      className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${enableCreator ? 'translate-x-4.5' : 'translate-x-1'}`}
+                      style={{ transform: enableCreator ? 'translateX(18px)' : 'translateX(4px)' }}
+                    />
+                  </button>
+                </div>
+                <AnimatePresence>
+                  {enableCreator && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="overflow-hidden"
+                    >
+                      <input 
+                        type="text" 
+                        value={creatorName}
+                        onChange={(e) => setCreatorName(e.target.value)}
+                        placeholder="Your adobe contributor display name"
+                        className="w-full mt-2 bg-[#0F0A24] border border-purple-500/30 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-purple-500 placeholder-purple-300/30 transition-colors"
+                      />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
               
 
