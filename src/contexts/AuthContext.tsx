@@ -21,6 +21,7 @@ interface UserProfile {
   nickname?: string;
   processedCount?: number;
   creatorName?: string;
+  enableCreator?: boolean;
 }
 
 interface AuthContextType {
