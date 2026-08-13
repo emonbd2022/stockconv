@@ -129,16 +129,26 @@ export default function App() {
     const fileArray = Array.from(files).filter(file => file.type === 'image/png' || file.type === 'image/jpeg' || file.type === 'image/jpg');
     if (fileArray.length === 0) return;
 
-    const newImages: ConvertedImage[] = fileArray.map(file => ({
-      id: crypto.randomUUID(),
-      originalName: file.name,
-      originalSize: file.size,
-      previewUrl: URL.createObjectURL(file),
-      file: file,
-      status: 'pending'
-    }));
+    setImages(prev => {
+      // Prevent duplicates by checking name and size
+      const existingSignatures = new Set(prev.map(img => `${img.originalName}-${img.originalSize}`));
+      const uniqueNewFiles = fileArray.filter(file => !existingSignatures.has(`${file.name}-${file.size}`));
+      
+      if (uniqueNewFiles.length === 0) {
+        return prev; // All selected files are duplicates
+      }
 
-    setImages(prev => [...prev, ...newImages]);
+      const newImages: ConvertedImage[] = uniqueNewFiles.map(file => ({
+        id: crypto.randomUUID(),
+        originalName: file.name,
+        originalSize: file.size,
+        previewUrl: URL.createObjectURL(file),
+        file: file,
+        status: 'pending'
+      }));
+
+      return [...prev, ...newImages];
+    });
   }, []);
 
   const toggleConversion = () => {
@@ -367,7 +377,7 @@ export default function App() {
   const estimatedSeconds = Math.ceil(estimatedMs / 1000);
 
   return (
-    <div className="h-full w-full bg-[#0A0518] text-[#E0D7FF] font-sans flex flex-col">
+    <div className="h-screen w-full bg-[#0A0518] text-[#E0D7FF] font-sans flex flex-col overflow-hidden">
       <header className="p-6 border-b border-purple-500/20 flex justify-between items-center bg-[#0F0A24] shrink-0">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-purple-600 rounded-lg flex items-center justify-center shadow-[0_0_15px_rgba(147,51,234,0.5)]">
@@ -431,10 +441,10 @@ export default function App() {
 
       </header>
 
-      <main className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-0 overflow-hidden min-h-0">
+      <main className="flex-1 flex flex-col lg:flex-row gap-0 overflow-hidden min-h-0">
         
         {/* Left Sidebar: Navigation & Config */}
-        <aside className="col-span-1 lg:col-span-3 border-r border-purple-500/20 p-6 bg-[#0F0A24]/50 flex flex-col gap-6 overflow-y-auto">
+        <aside className="w-full lg:w-64 xl:w-72 border-b lg:border-b-0 lg:border-r border-purple-500/20 p-4 lg:p-5 bg-[#0F0A24]/50 flex flex-col gap-4 overflow-y-auto shrink-0">
           
           {/* Navigation Tabs */}
           <div className="flex flex-col gap-2 p-1 bg-purple-950/20 rounded-2xl border border-purple-500/10">
@@ -502,10 +512,7 @@ export default function App() {
               </div>
               
 
-              <div className="p-4 rounded-xl bg-purple-500/5 border border-purple-500/20">
-                <h3 className="text-xs font-semibold text-purple-200 mb-2">Quality & Compression</h3>
-                <p className="text-[11px] leading-relaxed text-purple-300/60">No additional compression applied. Images converted at 100% highest quality natively.</p>
-              </div>
+
             </div>
 
             <div className="mt-6 p-6 rounded-2xl bg-[#140D2B] border border-purple-500/20 shadow-lg shadow-purple-900/20 flex flex-col items-center">
@@ -556,7 +563,7 @@ export default function App() {
         </aside>
 
         {/* Content Area */}
-        <section className="col-span-1 lg:col-span-9 p-8 flex flex-col gap-6 h-full overflow-hidden relative">
+        <section className="flex-1 p-4 lg:p-6 lg:p-8 bg-[#0A0518] flex flex-col gap-6 h-full overflow-hidden relative min-w-0">
           <AnimatePresence mode="wait">
             {activeTab === 'converter' && (
               <motion.div 
@@ -569,7 +576,7 @@ export default function App() {
               >
                 {/* Drop Zone */}
                 <div 
-                  className="shrink-0 h-48 sm:h-64 border-2 border-dashed border-purple-500/30 rounded-3xl bg-purple-500/5 flex flex-col items-center justify-center gap-4 relative group cursor-pointer hover:bg-purple-500/10 transition-colors"
+                  className="shrink-0 w-full h-auto py-4 sm:py-6 border-2 border-dashed border-purple-500/30 rounded-2xl bg-purple-500/5 flex flex-col items-center justify-center gap-2 relative group cursor-pointer hover:bg-purple-500/10 transition-colors"
                   onDragOver={(e) => e.preventDefault()}
                   onDrop={handleDrop}
                   onClick={() => document.getElementById('file-upload')?.click()}
@@ -582,14 +589,14 @@ export default function App() {
                     className="hidden" 
                     onChange={handleFileInput}
                   />
-                  <div className="w-16 h-16 rounded-full bg-purple-500/10 flex items-center justify-center group-hover:scale-110 transition-transform">
-                    <Upload className="w-8 h-8 text-purple-400" />
+                  <div className="w-10 h-10 rounded-full bg-purple-500/10 flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <Upload className="w-5 h-5 text-purple-400" />
                   </div>
                   <div className="text-center px-4">
-                    <p className="text-lg font-semibold text-white">Drop your Adobe Stock PNGs here</p>
-                    <p className="text-sm text-purple-300/50 mt-1">PNG files only. Highest quality JPEG output.</p>
+                    <p className="text-sm font-semibold text-white">Drop your Adobe Stock PNGs here</p>
+                    <p className="text-xs text-purple-300/50 mt-1">PNG files only. Highest quality JPEG output.</p>
                   </div>
-                  <button className="mt-2 px-6 py-2 bg-purple-600 rounded-full text-xs font-bold uppercase tracking-wider shadow-md hover:bg-purple-500 transition-colors">Browse Files</button>
+                  <button className="mt-1 px-4 py-1 bg-purple-600 rounded-full text-[10px] font-bold uppercase tracking-wider shadow-md hover:bg-purple-500 transition-colors">Browse Files</button>
                 </div>
 
                 {/* Processing Queue */}
