@@ -179,11 +179,14 @@ export default function App() {
     setIsConverting(true);
     stopConversionRef.current = false;
     
+    let successfulConversionsCount = 0;
+    let localCredits = profile?.credits || 0;
+    
     for (const imgObj of pendingImages) {
       if (stopConversionRef.current) break;
 
-      // Check credits for each image (in case they run out mid-batch)
-      if (!profile?.isUnlimited && (profile?.credits || 0) <= 0) {
+      // Check credits for each image using local tracker
+      if (!profile?.isUnlimited && localCredits <= 0) {
         addToast('Ran out of credits!', 'error');
         break;
       }
@@ -197,13 +200,10 @@ export default function App() {
         const finalCreatorName = enableCreator ? (creatorName.trim() || user?.displayName || 'Unknown Creator') : '';
         const convertedBlob = await convertImage(imgObj.file, finalCreatorName);
         
-        // Deduct credit & track processed
-        if (profile) {
-          const userDocRef = doc(db, 'users', profile.uid);
-          updateDoc(userDocRef, {
-            credits: profile.isUnlimited ? increment(0) : increment(-1),
-            processedCount: increment(1)
-          }).catch(err => console.error("Error updating stats:", err));
+        // Track success locally instead of writing to Firestore every time
+        successfulConversionsCount++;
+        if (!profile?.isUnlimited) {
+          localCredits--;
         }
 
         const endTime = performance.now();
@@ -248,6 +248,15 @@ export default function App() {
           img.id === imgObj.id ? { ...img, status: 'error' } : img
         ));
       }
+    }
+    
+    // Batch Firestore update at the end to save writes
+    if (profile && successfulConversionsCount > 0) {
+      const userDocRef = doc(db, 'users', profile.uid);
+      updateDoc(userDocRef, {
+        credits: profile.isUnlimited ? increment(0) : increment(-successfulConversionsCount),
+        processedCount: increment(successfulConversionsCount)
+      }).catch(err => console.error("Error updating stats:", err));
     }
     
     setIsConverting(false);
