@@ -7,6 +7,9 @@ export interface ConvertedImage {
   blob?: Blob;
   status: 'pending' | 'converting' | 'done' | 'error';
   convertedSize?: number;
+  isExported?: boolean;
+  progress?: number;
+  stage?: string;
 }
 
 export interface Toast {

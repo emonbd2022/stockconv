@@ -22,6 +22,7 @@ interface UserProfile {
   processedCount?: number;
   creatorName?: string;
   enableCreator?: boolean;
+  adminNotified?: boolean;
 }
 
 interface AuthContextType {
@@ -81,6 +82,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               createdAt: serverTimestamp(),
               processedCount: 0,
               isBlocked: false,
+              adminNotified: false,
             };
             try {
               setDoc(userDocRef, newProfile).catch(err => console.error("Error writing profile to server:", err));

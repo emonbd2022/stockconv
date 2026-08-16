@@ -75,19 +75,28 @@ export const initMagick = async () => {
   return initializing;
 };
 
-export const convertImage = async (file: File, creatorName?: string): Promise<Blob> => {
+export const convertImage = async (
+  file: File, 
+  creatorName?: string, 
+  quality?: number,
+  onProgress?: (progress: number, stage: string) => void
+): Promise<Blob> => {
+  onProgress?.(10, 'Initializing ImageMagick engine...');
   await initMagick();
   
+  onProgress?.(25, 'Reading image buffer...');
   const buffer = new Uint8Array(await file.arrayBuffer());
   
   return new Promise((resolve, reject) => {
     try {
+      onProgress?.(40, 'Parsing image headers & profiles...');
       ImageMagick.read(buffer, (img) => {
         try {
           // Handle input format -> output format
         const isPng = file.type === 'image/png' || img.format === MagickFormat.Png;
         const targetFormat = isPng ? MagickFormat.Jpeg : MagickFormat.Png;
         
+        onProgress?.(55, 'Extracting & processing metadata tags...');
         // 1. READ METADATA & STORE METADATA OBJECT
         const attributes: Record<string, string> = {};
         for (const attr of img.attributeNames) {
@@ -187,6 +196,7 @@ export const convertImage = async (file: File, creatorName?: string): Promise<Bl
         
         // Apply new Creator (Author) if enabled
         if (creatorName) {
+            onProgress?.(70, `Injecting contributor tag: ${creatorName}...`);
             const newCreator = escapeXml(creatorName);
             // Inject as pdf:Author and tiff:Artist which usually map to Author/Artist instead of Creator
             rdfToInject += `\n      <pdf:Author>${newCreator}</pdf:Author>\n      <tiff:Artist>${newCreator}</tiff:Artist>`;
@@ -230,6 +240,7 @@ export const convertImage = async (file: File, creatorName?: string): Promise<Bl
             img.setProfile('xmp', newXmpData);
         }
         
+        onProgress?.(80, 'Processing color alpha channel & matte...');
         // 4. CONVERT PIXELS
         if (targetFormat === MagickFormat.Jpeg) {
           // PNG to JPEG: Fill transparent background with white
@@ -237,16 +248,18 @@ export const convertImage = async (file: File, creatorName?: string): Promise<Bl
             img.backgroundColor = new MagickColor('#ffffff');
             img.alpha(AlphaAction.Remove);
           }
-          img.quality = 100;
+          img.quality = quality !== undefined ? Math.max(1, Math.min(100, quality)) : 100;
         } else {
           // JPEG to PNG
         }
         
+        onProgress?.(90, `Encoding ${targetFormat === MagickFormat.Jpeg ? 'JPEG' : 'PNG'} format...`);
         // 5. ENCODE DESTINATION IMAGE
         img.format = targetFormat;
         
         // 6. WRITE METADATA (Done automatically by img.write preserving profiles and attributes)
         img.write(data => {
+          onProgress?.(100, 'Conversion complete');
           resolve(new Blob([data], { type: targetFormat === MagickFormat.Jpeg ? 'image/jpeg' : 'image/png' }));
         });
         } catch(innerErr) {

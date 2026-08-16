@@ -1,13 +1,16 @@
 import React, { useCallback, useState, useEffect, useRef } from 'react';
 import JSZip from 'jszip';
-import { Upload, Download, Trash2, DownloadCloud, CheckCircle, FileImage, XCircle, Info, PlayCircle, StopCircle, Hourglass, Activity, LayoutDashboard, ShieldCheck, User } from 'lucide-react';
+import { Upload, Download, Trash2, DownloadCloud, CheckCircle, FileImage, XCircle, Info, PlayCircle, StopCircle, Hourglass, Activity, LayoutDashboard, ShieldCheck, User, CheckCheck, Sliders, ChevronDown, HelpCircle, Keyboard, Save } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { ConvertedImage, Toast } from './types';
 import { convertImage, downloadBlob, formatBytes, playSuccessSound, showOSNotification } from './utils';
+import { loadQueueFromStorage, saveQueueToStorage, clearQueueStorage } from './queueStorage';
 import { useAuth } from './contexts/AuthContext';
 import { Login } from './components/Login';
 import { UserDashboard } from './components/UserDashboard';
 import { AdminPanel } from './components/AdminPanel';
+import { ConversionProgressOverlay, ActiveConversionItem } from './components/ConversionProgressOverlay';
+import { CompletionModal } from './components/CompletionModal';
 import { doc, updateDoc, increment } from 'firebase/firestore';
 import { db } from './firebase';
 
@@ -15,6 +18,7 @@ export default function App() {
   const { user, profile, loading, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<'converter' | 'dashboard' | 'admin'>('converter');
   const [images, setImages] = useState<ConvertedImage[]>([]);
+  const [isQueueLoaded, setIsQueueLoaded] = useState(false);
   const [creatorName, setCreatorName] = useState(() => profile?.creatorName || user?.displayName || '');
   const [enableCreator, setEnableCreator] = useState(() => profile?.enableCreator || false);
 
@@ -77,6 +81,9 @@ export default function App() {
   }, []);
   const [avgTimePerImage, setAvgTimePerImage] = useState<number>(500);
   const [isConverting, setIsConverting] = useState(false);
+  const [showCompletionModal, setShowCompletionModal] = useState(false);
+  const [completionStats, setCompletionStats] = useState({ total: 0, successful: 0, needsDownload: false });
+  const [activeConversion, setActiveConversion] = useState<ActiveConversionItem | null>(null);
   const stopConversionRef = useRef(false);
   const recentTimesRef = useRef<{ timestamp: number, duration: number }[]>([]);
     const [autoExportOneByOne, setAutoExportOneByOne] = useState<boolean>(() => {
@@ -103,9 +110,38 @@ export default function App() {
   });
   const [isExportingBatch, setIsExportingBatch] = useState(false);
 
+  const [jpegQuality, setJpegQuality] = useState<number>(() => {
+    const saved = localStorage.getItem('jpegQuality');
+    if (saved) {
+      const parsed = parseInt(saved, 10);
+      if (!isNaN(parsed) && parsed >= 10 && parsed <= 100) return parsed;
+    }
+    return 100;
+  });
+
+  useEffect(() => {
+    localStorage.setItem('jpegQuality', jpegQuality.toString());
+  }, [jpegQuality]);
+
   useEffect(() => {
     localStorage.setItem('autoExport', autoExport.toString());
   }, [autoExport]);
+
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      const hasUnfinishedImages = isConverting || images.some(img => img.status === 'pending' || img.status === 'converting');
+      if (hasUnfinishedImages) {
+        e.preventDefault();
+        e.returnValue = '';
+        return '';
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [isConverting, images]);
 
   const addToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
     const id = crypto.randomUUID();
@@ -114,6 +150,31 @@ export default function App() {
       setToasts(prev => prev.filter(t => t.id !== id));
     }, 4000);
   }, []);
+
+  // Restore saved queue state on startup/refresh
+  useEffect(() => {
+    loadQueueFromStorage().then(restored => {
+      if (restored && restored.length > 0) {
+        setImages(restored);
+        const pendingCount = restored.filter(img => img.status === 'pending').length;
+        const doneCount = restored.filter(img => img.status === 'done').length;
+        addToast(
+          `Restored queue with ${restored.length} ${restored.length === 1 ? 'file' : 'files'} (${doneCount} done, ${pendingCount} pending)`,
+          'info'
+        );
+      }
+      setIsQueueLoaded(true);
+    }).catch(err => {
+      console.warn("Failed to restore queue from storage:", err);
+      setIsQueueLoaded(true);
+    });
+  }, [addToast]);
+
+  // Persist queue state whenever images change after initial load
+  useEffect(() => {
+    if (!isQueueLoaded) return;
+    saveQueueToStorage(images);
+  }, [images, isQueueLoaded]);
 
   const handleAutoExportToggle = (checked: boolean) => {
     setAutoExport(checked);
@@ -151,6 +212,15 @@ export default function App() {
     });
   }, []);
 
+  const updateServerExportStats = useCallback((count: number) => {
+    if (!profile || count <= 0) return;
+    const userDocRef = doc(db, 'users', profile.uid);
+    updateDoc(userDocRef, {
+      credits: profile.isUnlimited ? increment(0) : increment(-count),
+      processedCount: increment(count)
+    }).catch(err => console.error("Error updating export stats on server:", err));
+  }, [profile]);
+
   const toggleConversion = () => {
     if (!user) {
       setActiveTab('dashboard');
@@ -160,6 +230,8 @@ export default function App() {
 
     if (isConverting) {
       stopConversionRef.current = true;
+      setIsConverting(false);
+      setActiveConversion(null);
     } else {
       // Check credits before starting
       if (!profile?.isUnlimited && (profile?.credits || 0) <= 0) {
@@ -179,28 +251,54 @@ export default function App() {
     setIsConverting(true);
     stopConversionRef.current = false;
     
+    // Temporary variables for tracking process and export in batch
     let successfulConversionsCount = 0;
+    let oneByOneExportedCount = 0;
     let localCredits = profile?.credits || 0;
+    let currentIndex = 0;
+    const totalPendingCount = pendingImages.length;
     
     for (const imgObj of pendingImages) {
       if (stopConversionRef.current) break;
+      currentIndex++;
 
       // Check credits for each image using local tracker
       if (!profile?.isUnlimited && localCredits <= 0) {
         addToast('Ran out of credits!', 'error');
         break;
       }
+
+      setActiveConversion({
+        id: imgObj.id,
+        originalName: imgObj.originalName,
+        originalSize: imgObj.originalSize,
+        previewUrl: imgObj.previewUrl,
+        progress: 10,
+        stage: 'Initializing engine & reading file...',
+        currentIndex,
+        totalInBatch: totalPendingCount
+      });
       
       setImages(prev => prev.map(img => 
-        img.id === imgObj.id ? { ...img, status: 'converting' } : img
+        img.id === imgObj.id ? { ...img, status: 'converting', progress: 10, stage: 'Starting conversion...' } : img
       ));
       
       const startTime = performance.now();
       try {
         const finalCreatorName = enableCreator ? (creatorName.trim() || user?.displayName || 'Unknown Creator') : '';
-        const convertedBlob = await convertImage(imgObj.file, finalCreatorName);
+        const convertedBlob = await convertImage(
+          imgObj.file, 
+          finalCreatorName, 
+          jpegQuality,
+          (progress, stage) => {
+            setActiveConversion(prev => prev && prev.id === imgObj.id ? { ...prev, progress, stage } : prev);
+            setImages(prev => prev.map(img => 
+              img.id === imgObj.id ? { ...img, progress, stage } : img
+            ));
+          }
+        );
         
-        // Track success locally instead of writing to Firestore every time
+        // Track success locally in temporary variable
         successfulConversionsCount++;
         if (!profile?.isUnlimited) {
           localCredits--;
@@ -224,49 +322,61 @@ export default function App() {
           totalProcessed: prev.totalProcessed + 1,
         }));
         
+        const isOneByOne = autoExportOneByOneRef.current;
+        if (isOneByOne) {
+          const newName = imgObj.originalName.replace(/\.[^/.]+$/, "") + ".jpg";
+          downloadBlob(convertedBlob, newName);
+          oneByOneExportedCount++;
+        }
+
         setImages(prev => prev.map(img => {
           if (img.id === imgObj.id) {
             const updated = { 
               ...img, 
               status: 'done' as const, 
+              progress: 100,
+              stage: 'Completed',
               blob: convertedBlob, 
-              convertedSize: convertedBlob.size 
+              convertedSize: convertedBlob.size,
+              isExported: isOneByOne ? true : img.isExported
             };
             allDone.push(updated);
             return updated;
           }
           return img;
         }));
-
-        if (autoExportOneByOneRef.current) {
-          const newName = imgObj.originalName.replace(/\.[^/.]+$/, "") + ".jpg";
-          downloadBlob(convertedBlob, newName);
-        }
       } catch (error) {
         console.error("Failed to convert image:", error);
         setImages(prev => prev.map(img => 
-          img.id === imgObj.id ? { ...img, status: 'error' } : img
+          img.id === imgObj.id ? { ...img, status: 'error', progress: 0, stage: 'Failed' } : img
         ));
       }
     }
     
-    // Batch Firestore update at the end to save writes
-    if (profile && successfulConversionsCount > 0) {
-      const userDocRef = doc(db, 'users', profile.uid);
-      updateDoc(userDocRef, {
-        credits: profile.isUnlimited ? increment(0) : increment(-successfulConversionsCount),
-        processedCount: increment(successfulConversionsCount)
-      }).catch(err => console.error("Error updating stats:", err));
+    // If one by one export: update total count in server after the last file export
+    if (oneByOneExportedCount > 0) {
+      updateServerExportStats(oneByOneExportedCount);
     }
     
     setIsConverting(false);
+    setActiveConversion(null);
     stopConversionRef.current = false;
     
     setTimeout(() => {
       setImages(prev => {
         const currentDone = prev.filter(img => img.status === 'done');
         if (autoExport && currentDone.length > 0) {
-          handleExportBatch(currentDone);
+          handleExportBatch(currentDone).then(() => {
+            if (totalPendingCount > 0) {
+              setCompletionStats({ total: totalPendingCount, successful: successfulConversionsCount, needsDownload: false });
+              setShowCompletionModal(true);
+            }
+          });
+        } else {
+          if (totalPendingCount > 0) {
+            setCompletionStats({ total: totalPendingCount, successful: successfulConversionsCount, needsDownload: !autoExportOneByOneRef.current });
+            setShowCompletionModal(true);
+          }
         }
         return prev;
       });
@@ -274,7 +384,7 @@ export default function App() {
   };
 
   const handleExportBatch = async (overrideImages?: ConvertedImage[]) => {
-    const doneImages = overrideImages || images.filter(img => img.status === 'done');
+    const doneImages = (overrideImages || images).filter(img => img.status === 'done' && img.blob);
     if (doneImages.length === 0) return;
 
     setIsExportingBatch(true);
@@ -294,6 +404,16 @@ export default function App() {
       const zipFileName = `${doneImages.length}_converted_images_for_${safeCreatorName}.zip`;
       downloadBlob(zipBlob, zipFileName);
       
+      // Update server count after successful zip export
+      const unexportedCount = doneImages.filter(img => !img.isExported).length;
+      const exportCount = unexportedCount > 0 ? unexportedCount : doneImages.length;
+      updateServerExportStats(exportCount);
+
+      // Mark all exported images as exported
+      setImages(prev => prev.map(img => 
+        doneImages.some(d => d.id === img.id) ? { ...img, isExported: true } : img
+      ));
+
       addToast(`Successfully exported ${doneImages.length} images!`, 'success');
       playSuccessSound();
       showOSNotification('Batch Export Complete', {
@@ -304,6 +424,17 @@ export default function App() {
       addToast('Failed to create batch export zip.', 'error');
     } finally {
       setIsExportingBatch(false);
+    }
+  };
+
+  const handleDownloadSingle = (img: ConvertedImage) => {
+    if (!img.blob) return;
+    const newName = img.originalName.replace(/\.[^/.]+$/, "") + ".jpg";
+    downloadBlob(img.blob, newName);
+
+    if (!img.isExported) {
+      setImages(prev => prev.map(item => item.id === img.id ? { ...item, isExported: true } : item));
+      updateServerExportStats(1);
     }
   };
 
@@ -327,12 +458,96 @@ export default function App() {
     });
   };
 
-  const clearAll = () => {
-    images.forEach(img => {
-      if (img.previewUrl) URL.revokeObjectURL(img.previewUrl);
+  const clearFinished = () => {
+    setImages(prev => {
+      const remaining: ConvertedImage[] = [];
+      let clearedCount = 0;
+      prev.forEach(img => {
+        if (img.status === 'done') {
+          clearedCount++;
+          if (img.previewUrl) URL.revokeObjectURL(img.previewUrl);
+        } else {
+          remaining.push(img);
+        }
+      });
+      if (clearedCount > 0) {
+        addToast(`Cleared ${clearedCount} finished ${clearedCount === 1 ? 'image' : 'images'} from queue`, 'info');
+      }
+      return remaining;
     });
-    setImages([]);
   };
+
+  const clearAll = useCallback(() => {
+    setImages(prev => {
+      prev.forEach(img => {
+        if (img.previewUrl) URL.revokeObjectURL(img.previewUrl);
+      });
+      return [];
+    });
+    clearQueueStorage();
+    addToast('Queue cleared', 'info');
+  }, [addToast]);
+
+  const [showShortcutsModal, setShowShortcutsModal] = useState(false);
+
+  // Global Keyboard Shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement;
+      const isInput = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || (activeEl as HTMLElement).isContentEditable);
+
+      const isCtrlOrCmd = e.ctrlKey || e.metaKey;
+
+      // Ctrl + O: Upload files
+      if (isCtrlOrCmd && (e.key === 'o' || e.key === 'O')) {
+        e.preventDefault();
+        const fileInput = document.getElementById('file-upload') as HTMLInputElement | null;
+        if (fileInput) {
+          fileInput.click();
+        }
+        return;
+      }
+
+      // Ctrl + S: Save project / Save state
+      if (isCtrlOrCmd && (e.key === 's' || e.key === 'S')) {
+        e.preventDefault();
+        if (images.length > 0) {
+          saveQueueToStorage(images);
+          addToast(`Project state saved (${images.length} images in queue)`, 'success');
+        } else {
+          addToast('Project state is already empty and synchronized', 'info');
+        }
+        return;
+      }
+
+      // Ctrl + Enter: Start / Pause (Toggle conversion)
+      if (isCtrlOrCmd && e.key === 'Enter') {
+        e.preventDefault();
+        toggleConversion();
+        return;
+      }
+
+      // Ctrl + Backspace: Clear the queue
+      if (isCtrlOrCmd && (e.key === 'Backspace' || e.key === 'Delete')) {
+        e.preventDefault();
+        clearAll();
+        return;
+      }
+
+      // Space: Toggle conversion (when not typing inside an input)
+      if (e.code === 'Space' || e.key === ' ') {
+        if (!isInput) {
+          e.preventDefault();
+          toggleConversion();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [images, isConverting, user, profile, toggleConversion, clearAll, addToast]);
 
   if (loading) {
     return (
@@ -429,6 +644,47 @@ export default function App() {
              </label>
           </div>
           
+          <div className="relative group">
+            <button
+              onClick={() => setShowShortcutsModal(true)}
+              className="p-1.5 sm:p-2 rounded-lg bg-purple-950/60 border border-purple-500/30 text-purple-300 hover:text-white hover:bg-purple-900/50 hover:border-purple-400 transition-all flex items-center justify-center shadow-md cursor-pointer"
+              title="Keyboard Shortcuts"
+              aria-label="Keyboard Shortcuts"
+            >
+              <HelpCircle className="w-4 h-4 sm:w-4 sm:h-4 text-purple-400" />
+            </button>
+
+            {/* Hover Tooltip Menu */}
+            <div className="absolute right-0 top-full mt-2 w-64 p-3.5 bg-[#120B2E] border border-purple-500/30 rounded-xl shadow-2xl shadow-purple-950/80 backdrop-blur-md opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-all duration-200 z-50">
+              <div className="flex items-center gap-1.5 mb-2.5 pb-2 border-b border-purple-500/20">
+                <Keyboard className="w-3.5 h-3.5 text-purple-400" />
+                <span className="text-[11px] font-bold text-white uppercase tracking-wider">Keyboard Shortcuts</span>
+              </div>
+              <div className="space-y-2 text-[11px]">
+                <div className="flex items-center justify-between">
+                  <span className="text-purple-200/80">Upload Images</span>
+                  <kbd className="px-1.5 py-0.5 bg-purple-950/80 border border-purple-500/40 rounded text-[10px] font-mono text-purple-300 font-bold">Ctrl + O</kbd>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-purple-200/80">Save Project</span>
+                  <kbd className="px-1.5 py-0.5 bg-purple-950/80 border border-purple-500/40 rounded text-[10px] font-mono text-purple-300 font-bold">Ctrl + S</kbd>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-purple-200/80">Start / Pause</span>
+                  <div className="flex items-center gap-1">
+                    <kbd className="px-1.5 py-0.5 bg-purple-950/80 border border-purple-500/40 rounded text-[10px] font-mono text-purple-300 font-bold">Ctrl + ↵</kbd>
+                    <span className="text-[9px] text-purple-400/60">or</span>
+                    <kbd className="px-1.5 py-0.5 bg-purple-950/80 border border-purple-500/40 rounded text-[10px] font-mono text-purple-300 font-bold">Space</kbd>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-purple-200/80">Clear Queue</span>
+                  <kbd className="px-1.5 py-0.5 bg-purple-950/80 border border-purple-500/40 rounded text-[10px] font-mono text-purple-300 font-bold">Ctrl + ⌫</kbd>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <button 
             onClick={toggleConversion}
             disabled={images.filter(img => img.status === 'pending').length === 0 && !isConverting}
@@ -519,9 +775,37 @@ export default function App() {
                   )}
                 </AnimatePresence>
               </div>
-              
 
-
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <label htmlFor="jpeg-quality-select" className="text-xs font-semibold text-purple-200 uppercase tracking-widest flex items-center gap-1.5">
+                    <Sliders className="w-3.5 h-3.5 text-purple-400" />
+                    <span>JPEG Quality</span>
+                  </label>
+                  <span className="text-[11px] font-mono text-purple-400 bg-purple-950/60 px-2 py-0.5 rounded-md border border-purple-500/20">
+                    {jpegQuality}%
+                  </span>
+                </div>
+                <div className="relative">
+                  <select
+                    id="jpeg-quality-select"
+                    value={jpegQuality}
+                    onChange={(e) => setJpegQuality(Number(e.target.value))}
+                    disabled={isConverting}
+                    className="w-full bg-[#0F0A24] border border-purple-500/30 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-purple-500 transition-colors appearance-none cursor-pointer pr-9 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <option value={100} className="bg-[#0F0A24] text-white">100% (Maximum / Lossless)</option>
+                    <option value={95} className="bg-[#0F0A24] text-white">95% (High Quality)</option>
+                    <option value={90} className="bg-[#0F0A24] text-white">90% (Recommended / Balanced)</option>
+                    <option value={85} className="bg-[#0F0A24] text-white">85% (High Compression)</option>
+                    <option value={80} className="bg-[#0F0A24] text-white">80% (Optimized Size)</option>
+                    <option value={75} className="bg-[#0F0A24] text-white">75% (Small Size)</option>
+                  </select>
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-purple-400">
+                    <ChevronDown className="w-4 h-4" />
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div className="mt-6 p-6 rounded-2xl bg-[#140D2B] border border-purple-500/20 shadow-lg shadow-purple-900/20 flex flex-col items-center">
@@ -563,6 +847,38 @@ export default function App() {
                   <span className="font-mono text-white text-sm">
                     {sessionStats.totalProcessed} <span className="text-purple-300/40 text-[11px]">images</span>
                   </span>
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 p-4 rounded-2xl bg-[#140D2B]/50 border border-purple-500/10 flex flex-col gap-2.5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-[11px] font-bold text-purple-400/80 uppercase tracking-widest flex items-center gap-1.5">
+                  <Keyboard className="w-3.5 h-3.5 text-purple-400" />
+                  Shortcuts
+                </h3>
+                <button
+                  onClick={() => setShowShortcutsModal(true)}
+                  className="text-[10px] text-purple-400 hover:text-purple-300 font-medium underline"
+                >
+                  View all
+                </button>
+              </div>
+              <div className="space-y-1.5 text-[11px]">
+                <div className="flex items-center justify-between text-purple-300/70">
+                  <span>Upload</span>
+                  <kbd className="px-1.5 py-0.5 bg-purple-950/60 border border-purple-500/30 rounded text-[10px] font-mono text-purple-300">Ctrl+O</kbd>
+                </div>
+                <div className="flex items-center justify-between text-purple-300/70">
+                  <span>Save State</span>
+                  <kbd className="px-1.5 py-0.5 bg-purple-950/60 border border-purple-500/30 rounded text-[10px] font-mono text-purple-300">Ctrl+S</kbd>
+                </div>
+                <div className="flex items-center justify-between text-purple-300/70">
+                  <span>Start / Pause</span>
+                  <kbd className="px-1.5 py-0.5 bg-purple-950/60 border border-purple-500/30 rounded text-[10px] font-mono text-purple-300">Ctrl+↵ / Space</kbd>
+                </div>
+                <div className="flex items-center justify-between text-purple-300/70">
+                  <span>Clear Queue</span>
+                  <kbd className="px-1.5 py-0.5 bg-purple-950/60 border border-purple-500/30 rounded text-[10px] font-mono text-purple-300">Ctrl+⌫</kbd>
                 </div>
               </div>
             </div>
@@ -611,11 +927,43 @@ export default function App() {
                 {/* Processing Queue */}
                 <div className="flex-1 flex flex-col overflow-hidden min-h-0">
                   <div className="flex flex-col mb-4 shrink-0 gap-3">
-                    <div className="flex items-center justify-between">
-                      <h2 className="text-sm font-bold text-white uppercase tracking-widest">File Queue <span className="text-purple-500 font-mono text-xs ml-2">({totalCount})</span></h2>
-                      {totalCount > 0 && (
-                         <span className="text-xs font-mono text-purple-400">{progressPercent}% Completed</span>
-                      )}
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex items-center gap-3">
+                        <h2 className="text-sm font-bold text-white uppercase tracking-widest">File Queue <span className="text-purple-500 font-mono text-xs ml-2">({totalCount})</span></h2>
+                        {totalCount > 0 && (
+                          <span className="text-xs font-mono text-purple-400">({progressPercent}% Completed)</span>
+                        )}
+                      </div>
+                      
+                      <div className="flex items-center gap-2">
+                        {doneCount > 0 && (
+                          <button
+                            id="clear-finished-btn"
+                            onClick={clearFinished}
+                            disabled={isConverting}
+                            className="px-3 py-1.5 rounded-lg bg-purple-900/40 hover:bg-purple-800/60 text-purple-200 hover:text-white border border-purple-500/30 hover:border-purple-400/50 text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                            title="Remove only successfully converted images from the queue"
+                          >
+                            <CheckCheck className="w-3.5 h-3.5 text-purple-400" />
+                            <span>Clear Finished</span>
+                            <span className="px-1.5 py-0.5 rounded-md bg-purple-500/20 text-purple-300 text-[10px] font-mono">
+                              {doneCount}
+                            </span>
+                          </button>
+                        )}
+                        {totalCount > 0 && (
+                          <button
+                            id="clear-all-btn"
+                            onClick={clearAll}
+                            disabled={isConverting}
+                            className="px-2.5 py-1.5 rounded-lg bg-purple-950/30 hover:bg-red-950/40 text-purple-400/70 hover:text-red-300 border border-purple-500/10 hover:border-red-500/30 text-xs font-medium flex items-center gap-1.5 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                            title="Clear entire queue"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span className="hidden sm:inline">Clear All</span>
+                          </button>
+                        )}
+                      </div>
                     </div>
                     {totalCount > 0 && (
                       <div className="w-full h-1.5 bg-purple-900/50 rounded-full overflow-hidden">
@@ -647,7 +995,7 @@ export default function App() {
                   <div className="flex-1 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 overflow-y-auto pr-2 custom-scrollbar content-start">
                     {images.map(img => (
                       <div key={img.id} className="flex flex-col gap-3 p-3 bg-[#140D2B] rounded-2xl border border-purple-500/10 transition-colors hover:border-purple-500/30">
-                        <div className="w-full aspect-square shrink-0 rounded-xl bg-[#0F0A24] overflow-hidden flex items-center justify-center border border-purple-500/20 relative group">
+                        <div className={`w-full aspect-square shrink-0 rounded-xl bg-[#0F0A24] overflow-hidden flex items-center justify-center relative group transition-all duration-300 ${img.status === 'converting' ? 'ring-2 ring-cyan-400 ring-offset-2 ring-offset-[#140D2B] shadow-[0_0_15px_rgba(34,211,238,0.5)]' : 'border border-purple-500/20'}`}>
                           <img src={img.previewUrl} alt={img.originalName} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
                           <div className="absolute inset-0 bg-gradient-to-t from-[#0F0A24]/90 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
                         </div>
@@ -659,13 +1007,13 @@ export default function App() {
                           <div className="flex items-center justify-between mt-2">
                             <div className="h-5 flex items-center">
                               {img.status === 'done' && <span className="text-[10px] text-green-400 uppercase font-mono">Ready</span>}
-                              {img.status === 'converting' && <span className="text-[10px] text-purple-400 uppercase font-mono animate-pulse">Converting...</span>}
+                              {img.status === 'converting' && <span className="text-[10px] text-cyan-400 uppercase font-mono animate-pulse">Converting...</span>}
                               {img.status === 'error' && <span className="text-[10px] text-red-400 uppercase font-mono">Failed</span>}
                             </div>
                             <div className="flex items-center gap-1.5 shrink-0 z-10">
                               {img.status === 'done' && (
                                  <button 
-                                   onClick={(e) => { e.stopPropagation(); downloadBlob(img.blob, img.originalName.replace(/\.[^/.]+$/, "") + ".jpg"); }}
+                                   onClick={(e) => { e.stopPropagation(); handleDownloadSingle(img); }}
                                    className="p-1.5 text-purple-400 hover:text-white bg-purple-900/30 hover:bg-purple-600 rounded-lg transition-colors"
                                    title="Download"
                                  >
@@ -681,11 +1029,6 @@ export default function App() {
                               </button>
                             </div>
                           </div>
-                          {img.status === 'converting' && (
-                            <div className="w-full h-1 bg-purple-900/50 rounded-full mt-2 overflow-hidden">
-                              <div className="w-1/2 h-full bg-purple-400 animate-pulse"></div>
-                            </div>
-                          )}
                         </div>
                       </div>
                     ))}
@@ -737,6 +1080,111 @@ export default function App() {
           <p className="text-[11px] text-purple-300/50 font-medium">© {new Date().getFullYear()} StockConv — Developed by <span className="text-purple-400 font-semibold">Shahin Alam Emon</span></p>
         </div>
       </footer>
+
+      {/* Keyboard Shortcuts Modal */}
+      <AnimatePresence>
+        {showShortcutsModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="bg-[#120B2E] border border-purple-500/30 rounded-2xl w-full max-w-md p-6 shadow-2xl shadow-purple-950/80 overflow-hidden relative"
+            >
+              <div className="flex items-center justify-between pb-4 border-b border-purple-500/20">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-purple-600/30 border border-purple-500/30 flex items-center justify-center text-purple-300">
+                    <Keyboard className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-white tracking-wide">Keyboard Shortcuts</h3>
+                    <p className="text-[11px] text-purple-300/60 font-medium">Power up your batch conversion workflow</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowShortcutsModal(false)}
+                  className="p-1.5 rounded-lg text-purple-400 hover:text-white hover:bg-purple-900/40 transition-colors"
+                >
+                  <XCircle className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="divide-y divide-purple-500/10 my-4 text-xs">
+                <div className="py-3 flex items-center justify-between">
+                  <div>
+                    <div className="text-white font-medium">Toggle Start / Stop Conversion</div>
+                    <div className="text-[11px] text-purple-300/50">Start batch or pause ongoing process</div>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <kbd className="px-2 py-1 bg-purple-950/90 border border-purple-500/40 rounded-md font-mono text-[11px] text-purple-300 font-bold">Ctrl + Enter</kbd>
+                    <span className="text-[10px] text-purple-400/50">or</span>
+                    <kbd className="px-2 py-1 bg-purple-950/90 border border-purple-500/40 rounded-md font-mono text-[11px] text-purple-300 font-bold">Space</kbd>
+                  </div>
+                </div>
+
+                <div className="py-3 flex items-center justify-between">
+                  <div>
+                    <div className="text-white font-medium">Upload Image Files</div>
+                    <div className="text-[11px] text-purple-300/50">Open file explorer to select images</div>
+                  </div>
+                  <kbd className="px-2 py-1 bg-purple-950/90 border border-purple-500/40 rounded-md font-mono text-[11px] text-purple-300 font-bold shrink-0">Ctrl + O</kbd>
+                </div>
+
+                <div className="py-3 flex items-center justify-between">
+                  <div>
+                    <div className="text-white font-medium">Save Project State</div>
+                    <div className="text-[11px] text-purple-300/50">Synchronize queue state immediately</div>
+                  </div>
+                  <kbd className="px-2 py-1 bg-purple-950/90 border border-purple-500/40 rounded-md font-mono text-[11px] text-purple-300 font-bold shrink-0">Ctrl + S</kbd>
+                </div>
+
+                <div className="py-3 flex items-center justify-between">
+                  <div>
+                    <div className="text-white font-medium">Clear Queue</div>
+                    <div className="text-[11px] text-purple-300/50">Remove all images from current queue</div>
+                  </div>
+                  <kbd className="px-2 py-1 bg-purple-950/90 border border-purple-500/40 rounded-md font-mono text-[11px] text-purple-300 font-bold shrink-0">Ctrl + Backspace</kbd>
+                </div>
+              </div>
+
+              <div className="pt-2 flex justify-end">
+                <button
+                  onClick={() => setShowShortcutsModal(false)}
+                  className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white font-semibold text-xs rounded-xl transition-colors shadow-md shadow-purple-900/50"
+                >
+                  Got It
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <CompletionModal 
+        isOpen={showCompletionModal} 
+        onClose={() => setShowCompletionModal(false)}
+        total={completionStats.total}
+        successful={completionStats.successful}
+        needsDownload={completionStats.needsDownload}
+        onDownload={() => handleExportBatch()}
+      />
+
+      {/* Conversion Progress Overlay */}
+      <ConversionProgressOverlay
+        activeConversion={activeConversion}
+        isConverting={isConverting}
+        batchDoneCount={doneCount}
+        batchTotalCount={totalCount}
+        batchProgressPercent={progressPercent}
+        avgTimePerImage={avgTimePerImage}
+        estimatedSeconds={estimatedSeconds}
+        onStop={() => {
+          stopConversionRef.current = true;
+          setIsConverting(false);
+          setActiveConversion(null);
+          addToast('Conversion paused/stopped', 'info');
+        }}
+      />
 
       {/* Toasts */}
       <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">

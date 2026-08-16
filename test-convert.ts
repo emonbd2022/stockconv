@@ -23,7 +23,7 @@ async function main() {
   }, 3000);
   
   try {
-    const blob = await convertImage(file, "pixelzone");
+    const blob = await convertImage(file as unknown as globalThis.File, "pixelzone");
     console.log("Successfully converted. Size:", blob.size);
     process.exit(0);
   } catch (err) {

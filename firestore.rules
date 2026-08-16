@@ -48,7 +48,7 @@ service cloud.firestore {
         request.resource.data.get('isBlocked', false) == resource.data.get('isBlocked', false)
       );
 
-      allow delete: if false;
+      allow delete: if isAdmin();
     }
   }
 }
