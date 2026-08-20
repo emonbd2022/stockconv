@@ -371,14 +371,21 @@ export default function App() {
               setCompletionStats({ total: totalPendingCount, successful: successfulConversionsCount, needsDownload: false });
               setShowCompletionModal(true);
             }
+            if (totalPendingCount > 0) {
+              setImages([]);
+            }
           });
+          return prev;
         } else {
           if (totalPendingCount > 0) {
             setCompletionStats({ total: totalPendingCount, successful: successfulConversionsCount, needsDownload: !autoExportOneByOneRef.current });
             setShowCompletionModal(true);
           }
+          if (autoExportOneByOneRef.current && totalPendingCount > 0) {
+            return [];
+          }
+          return prev;
         }
-        return prev;
       });
     }, 100);
   };
@@ -1166,7 +1173,11 @@ export default function App() {
         total={completionStats.total}
         successful={completionStats.successful}
         needsDownload={completionStats.needsDownload}
-        onDownload={() => handleExportBatch()}
+        onDownload={() => {
+          handleExportBatch().then(() => {
+            setImages([]);
+          });
+        }}
       />
 
       {/* Conversion Progress Overlay */}
